@@ -1,2 +1,288 @@
-<img width="240" height="2268" alt="image" src="https://github.com/user-attachments/assets/4e086e5d-3d88-4096-8311-c5319c88c83e" />
+MRPA-II
+Multi-Resolution Prosodic Analysis II
+MRPA-II is a research project investigating whether prosodic structure can be discovered directly from acoustic signals without assuming predefined linguistic categories such as Pitch Accent, Accentual Phrase, or Downstep.
+
+Instead of assigning linguistic labels to scales, MRPA-II treats prosodic structure as a topology emerging from:
+
+Boundary
+Nucleus
+ScaleProfile
+Recursive Containment
+The long-term objective is the construction of a Universal Prosodic Topology (UPT).
+
+Vision
+MRPA-II is part of a larger research program:
+
+GNST
+↓
+Semantic Topology
+
+MRPA
+↓
+Prosodic Topology
+
+LLINGTOPOL
+↓
+Linguistic Topology
+=
+Semantic Topology
+×
+Prosodic Topology
+Core Hypothesis
+Prosody is not a set of predefined labels.
+
+Instead, it emerges from a hierarchy of variable-length prosodic nodes.
+
+ProsodicNode {
+
+    Boundary
+    Nucleus
+    ScaleProfile
+
+    Children
+}
+Language-specific concepts such as:
+
+Accent
+Downstep
+Tone
+Tone Sandhi
+Accentual Phrase
+are interpreted later through language adapters.
+
+Universal Prosodic Topology
+MRPA-II assumes the following language-independent representation:
+
+Boundary
+
+Nucleus
+
+ScaleProfile
+
+Recursive Containment
+No predefined labels are assigned to scales.
+
+ScaleProfile is treated as a universal coordinate system.
+
+Current Pipeline
+Audio
+↓
+F0 Extraction
+↓
+F0 Interpolation
+↓
+Continuous Wavelet Transform (CWT)
+↓
+ScaleProfile
+↓
+Boundary Discovery
+↓
+Variable-Length Node Discovery
+↓
+Prosodic Topology
+Quick Start
+1. Environment
+python -m venv .venv
+
+source .venv/bin/activate
+
+pip install -r requirements.txt
+2. Download JSUT
+Download JSUT v1.1 and extract it under:
+
+data/jsut/raw/jsut_ver1.1/
+Expected structure:
+
+data/
+└── jsut/
+    └── raw/
+        └── jsut_ver1.1/
+            ├── basic5000/
+            ├── travel1000/
+            ├── repeat500/
+            └── ...
+3. Extract F0
+python analysis/f0/extract_real_f0.py \
+  --input \
+  data/jsut/raw/jsut_ver1.1/basic5000/wav/BASIC5000_0459.wav \
+  --output \
+  data/jsut/f0/BASIC5000_0459_f0.npy
+Example output:
+
+saved: BASIC5000_0459_f0.npy
+
+shape: (329,)
+
+voiced frames: 208
+4. Interpolate F0
+python analysis/f0/interpolate_f0.py \
+  --input \
+  data/jsut/f0/BASIC5000_0459_f0.npy \
+  --output \
+  data/jsut/f0/BASIC5000_0459_f0_interp.npy
+5. Compute CWT
+python analysis/f0/extract_cwt.py \
+  --input \
+  data/jsut/f0/BASIC5000_0459_f0_interp.npy \
+  --output \
+  data/jsut/cwt/BASIC5000_0459_cwt.npz
+Example output:
+
+input shape : (329,)
+cwt shape   : (64, 329)
+6. Extract Scale Profile
+python analysis/f0/scale_energy.py \
+  --input \
+  data/jsut/cwt/BASIC5000_0459_cwt.npz
+Example output:
+
+Peak: Scale=64
+Freq=0.01270
+Energy=84.33
+7. Plot F0
+python analysis/f0/plot_f0.py \
+  --input \
+  data/jsut/f0/BASIC5000_0459_f0.npy
+8. Plot Scale Energy
+python analysis/f0/plot_scale_energy.py \
+  --input \
+  data/jsut/cwt/BASIC5000_0459_cwt.npz
+Research Phases
+MRPA-I ✅
+Prosodic Spectral Analysis
+Achievements:
+
+Artificial prosody generation
+Frequency sweep experiments
+Scale-frequency correspondence
+Real JSUT F0 extraction
+CWT scale analysis
+Output:
+
+ScaleProfile
+MRPA-II 🚧
+Prosodic Node Discovery
+Objectives:
+
+Boundary Discovery
+
+↓
+
+Nucleus Discovery
+
+↓
+
+Variable-Length Prosodic Nodes
+
+↓
+
+ScaleProfile Assignment
+Research questions:
+
+What defines a prosodic boundary?
+What defines a prosodic nucleus?
+Can prosodic nodes emerge without linguistic labels?
+MRPA-III
+Prosodic Topology
+Objectives:
+
+Node Similarity
+
+↓
+
+Node Graph
+
+↓
+
+Prosodic Topology
+Output:
+
+Prosodic Manifold
+MRPA-IV
+Universal Prosodic Topology
+Objectives:
+
+Cross-linguistic validation:
+
+Japanese
+Mandarin
+Korean
+Research goal:
+
+Boundary
+
+Nucleus
+
+ScaleProfile
+as universal prosodic primitives.
+
+MRPA-V
+GNST Integration
+Semantic Topology
+
++
+
+Prosodic Topology
+Boundary prediction becomes:
+
+BoundaryScore
+=
+f(
+    SemanticCoordinate,
+    ProsodicCoordinate
+)
+MRPA-VI
+LLINGTOPOL Integration
+Linguistic Topology
+
+=
+
+Semantic Topology
+×
+Prosodic Topology
+Repository Structure
+analysis/
+docs/
+external/
+
+data/
+├── jsut/
+│   ├── raw/
+│   ├── f0/
+│   ├── cwt/
+│   └── results/
+
+figures/
+Current Status
+✅ JSUT integration
+
+✅ F0 extraction
+
+✅ F0 interpolation
+
+✅ Continuous Wavelet Transform
+
+✅ Scale Profile extraction
+
+✅ Frequency sweep experiments
+
+✅ Real utterance analysis
+
+🚧 Surprise-based Boundary Discovery
+
+🚧 Variable-Length Prosodic Nodes
+
+🚧 Node ScaleProfile Learning
+
+🚧 Prosodic Topology Construction
+
+Long-Term Goal
+MRPA aims to discover a Universal Prosodic Topology and integrate it with LLINGTOPOL.
+
+Semantic Topology
+×
+Prosodic Topology
+=
+Linguistic Topology
+where linguistic structure emerges from topology rather than predefined symbolic categories.
 
