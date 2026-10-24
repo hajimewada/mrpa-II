@@ -16,6 +16,7 @@ ScaleProfile,
 Children
 }
 
+##########################
 Key Ideas
 Traditional approaches assume fixed linguistic units and then analyze prosodic behavior within them.
 
@@ -68,7 +69,9 @@ Tone Sandhi
 Accentual Phrase
 are introduced later by language adapters.
 
+##########################
 Research Goal
+##########################
 The goal of MRPA-II is to discover Prosodic Nodes that are:
 
 variable-length
@@ -86,13 +89,15 @@ Prosodic Nodes
 which form the basis of MRPA-III: Prosodic Topology.
 
 
-
+###########################################
 Quick Start
+###########################################
 1. Create Environment
 python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
+
 2. Download JSUT
 Download JSUT v1.1 and extract it under:
 
@@ -106,6 +111,7 @@ data/
             ├── basic5000/
             ├── travel1000/
             └── ...
+            
 3. Extract F0
 python analysis/f0/extract_real_f0.py \
   --input \
@@ -117,12 +123,14 @@ Example output:
 saved: BASIC5000_0459_f0.npy
 shape: (329,)
 voiced frames: 208
+
 4. Interpolate F0
 python analysis/f0/interpolate_f0.py \
   --input \
   data/jsut/f0/BASIC5000_0459_f0.npy \
   --output \
   data/jsut/f0/BASIC5000_0459_f0_interp.npy
+
 5. Compute CWT
 python analysis/f0/extract_cwt.py \
   --input \
@@ -133,6 +141,7 @@ Expected output:
 
 input shape : (329,)
 cwt shape   : (64, 329)
+
 6. Compute Scale Profile
 python analysis/f0/scale_energy.py \
   --input \
@@ -142,10 +151,12 @@ Example output:
 Peak: Scale=64
 Freq=0.01270
 Energy=84.33
+
 7. Visualize F0
 python analysis/f0/plot_f0.py \
   --input \
   data/jsut/f0/BASIC5000_0459_f0.npy
+
 8. Visualize Scale Profile
 python analysis/f0/plot_scale_energy.py \
   --input \
@@ -167,8 +178,9 @@ Prosodic Node Discovery
  ↓
 Prosodic Topology
 
-
+#################################
 Current Status
+#################################
 ✅ Real F0 extraction from JSUT
 
 ✅ Continuous Wavelet Transform analysis
