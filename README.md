@@ -1,5 +1,7 @@
 MRPA-II
+
 Multi-Resolution Prosodic Analysis II
+
 MRPA-II is a research project investigating whether prosodic structure can be discovered directly from acoustic signals without assuming predefined linguistic categories such as Pitch Accent, Accentual Phrase, or Downstep.
 
 Instead of assigning linguistic labels to scales, MRPA-II treats prosodic structure as a topology emerging from:
