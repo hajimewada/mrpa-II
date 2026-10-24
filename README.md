@@ -84,3 +84,103 @@ Nucleus candidates
 ScaleProfiles
 Prosodic Nodes
 which form the basis of MRPA-III: Prosodic Topology.
+
+
+
+Quick Start
+1. Create Environment
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+2. Download JSUT
+Download JSUT v1.1 and extract it under:
+
+data/jsut/raw/jsut_ver1.1/
+Expected structure:
+
+data/
+└── jsut/
+    └── raw/
+        └── jsut_ver1.1/
+            ├── basic5000/
+            ├── travel1000/
+            └── ...
+3. Extract F0
+python analysis/f0/extract_real_f0.py \
+  --input \
+  data/jsut/raw/jsut_ver1.1/basic5000/wav/BASIC5000_0459.wav \
+  --output \
+  data/jsut/f0/BASIC5000_0459_f0.npy
+Example output:
+
+saved: BASIC5000_0459_f0.npy
+shape: (329,)
+voiced frames: 208
+4. Interpolate F0
+python analysis/f0/interpolate_f0.py \
+  --input \
+  data/jsut/f0/BASIC5000_0459_f0.npy \
+  --output \
+  data/jsut/f0/BASIC5000_0459_f0_interp.npy
+5. Compute CWT
+python analysis/f0/extract_cwt.py \
+  --input \
+  data/jsut/f0/BASIC5000_0459_f0_interp.npy \
+  --output \
+  data/jsut/cwt/BASIC5000_0459_cwt.npz
+Expected output:
+
+input shape : (329,)
+cwt shape   : (64, 329)
+6. Compute Scale Profile
+python analysis/f0/scale_energy.py \
+  --input \
+  data/jsut/cwt/BASIC5000_0459_cwt.npz
+Example output:
+
+Peak: Scale=64
+Freq=0.01270
+Energy=84.33
+7. Visualize F0
+python analysis/f0/plot_f0.py \
+  --input \
+  data/jsut/f0/BASIC5000_0459_f0.npy
+8. Visualize Scale Profile
+python analysis/f0/plot_scale_energy.py \
+  --input \
+  data/jsut/cwt/BASIC5000_0459_cwt.npz
+Current Experimental Pipeline
+JSUT
+ ↓
+F0 Extraction
+ ↓
+F0 Interpolation
+ ↓
+Continuous Wavelet Transform
+ ↓
+Scale Profile
+ ↓
+Boundary Discovery
+ ↓
+Prosodic Node Discovery
+ ↓
+Prosodic Topology
+
+
+Current Status
+✅ Real F0 extraction from JSUT
+
+✅ Continuous Wavelet Transform analysis
+
+✅ Scale Profile extraction
+
+✅ Phrase frequency sweep experiments
+
+✅ Real utterance analysis
+
+🚧 Surprise-based Boundary Discovery
+
+🚧 Variable-Length Prosodic Nodes
+
+🚧 Prosodic Topology Construction
