@@ -21,7 +21,7 @@ Traditional approaches assume fixed linguistic units and then analyze prosodic b
 
 MRPA-II reverses this process:
 
-F0 ↓ Prosodic Surprise ↓ Boundary Discovery ↓ Variable-Length Node Induction ↓ ScaleProfile Assignment ↓ Recursive Prosodic Structure
+F0 -> Prosodic Surprise -> Boundary Discovery -> Variable-Length Node Induction -> ScaleProfile Assignment -> Recursive Prosodic Structure
 
 Nodes are therefore induced from acoustic evidence rather than predefined linguistic labels.
 
