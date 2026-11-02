@@ -15,6 +15,7 @@ from analysis.f0.extract_cwt import (
     load_core_inputs,
     load_interpolation_metadata,
     load_optional_mask,
+    scale_signal,
     summarize_masks,
     validate_arguments,
     validate_core_arrays,
@@ -695,4 +696,109 @@ def test_center_signal_rejects_non_finite_values(
         center_signal(
             invalid_signal,
             centering="median",
+        )
+
+
+def test_scale_signal_none_returns_independent_copy() -> None:
+    signal = np.array(
+        [-0.5, 0.0, 0.25, 1.0],
+        dtype=np.float64,
+    )
+    original = signal.copy()
+
+    scaled, scale_value = scale_signal(
+        signal,
+        scaling="none",
+    )
+
+    assert np.array_equal(scaled, signal)
+    assert np.array_equal(signal, original)
+    assert scaled.dtype == np.float64
+    assert scaled.shape == signal.shape
+    assert scale_value == 1.0
+    assert not np.shares_memory(scaled, signal)
+
+
+def test_scale_signal_none_converts_numeric_input_to_float64() -> None:
+    signal = np.array(
+        [-2, 0, 3],
+        dtype=np.int64,
+    )
+
+    scaled, scale_value = scale_signal(
+        signal,
+        scaling="none",
+    )
+
+    expected = np.array(
+        [-2.0, 0.0, 3.0],
+        dtype=np.float64,
+    )
+
+    assert np.array_equal(scaled, expected)
+    assert scaled.dtype == np.float64
+    assert scale_value == 1.0
+    assert not np.shares_memory(scaled, signal)
+
+
+def test_scale_signal_rejects_unsupported_method() -> None:
+    signal = np.array(
+        [-1.0, 0.0, 1.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported CWT signal scaling",
+    ):
+        scale_signal(
+            signal,
+            scaling="standard",
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_signal",
+    [
+        np.array([1.0, np.nan, 2.0]),
+        np.array([1.0, np.inf, 2.0]),
+        np.array([1.0, -np.inf, 2.0]),
+    ],
+)
+def test_scale_signal_rejects_non_finite_values(
+    invalid_signal: np.ndarray,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="NaN or infinite",
+    ):
+        scale_signal(
+            invalid_signal,
+            scaling="none",
+        )
+
+
+def test_scale_signal_rejects_empty_input() -> None:
+    signal = np.array([], dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="must not be empty",
+    ):
+        scale_signal(
+            signal,
+            scaling="none",
+        )
+
+
+def test_scale_signal_rejects_multidimensional_input() -> None:
+    signal = np.ones((2, 2), dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="one-dimensional",
+    ):
+        scale_signal(
+            signal,
+            scaling="none",
         )

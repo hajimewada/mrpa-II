@@ -931,6 +931,74 @@ def center_signal(
     return centered, center_value
 
 
+def scale_signal(
+    signal: np.ndarray,
+    *,
+    scaling: str,
+) -> tuple[np.ndarray, float]:
+    """Scale a prepared CWT signal.
+
+    Milestone 2 supports only ``none`` scaling. The explicit scaling
+    interface is retained so that standard or robust scaling can be
+    evaluated in later experiments without changing the pipeline
+    contract.
+
+    Args:
+        signal:
+            One-dimensional finite numerical signal.
+        scaling:
+            Scaling method. Currently only ``none`` is supported.
+
+    Returns:
+        A tuple containing:
+        - an independent float64 copy of the input signal;
+        - the applied scale value, which is 1.0 for ``none``.
+
+    Raises:
+        ValueError:
+            If the scaling method is unsupported or the signal is invalid.
+        RuntimeError:
+            If scaling unexpectedly changes the signal shape or produces
+            non-finite values.
+    """
+
+    if scaling not in SUPPORTED_SCALING_METHODS:
+        raise ValueError(
+            f"Unsupported CWT signal scaling: {scaling}"
+        )
+
+    validated = validate_signal_array(
+        signal,
+        name="Centered CWT signal",
+        require_positive=False,
+    )
+
+    if scaling == "none":
+        scale_value = 1.0
+        scaled = validated.copy()
+    else:
+        # This branch is unreachable while the supported methods contain
+        # only "none", but it protects the function if the constant and
+        # implementation become inconsistent.
+        raise RuntimeError(
+            f"CWT scaling method is declared but not implemented: {scaling}"
+        )
+
+    scaled = np.asarray(scaled, dtype=np.float64)
+
+    if scaled.shape != validated.shape:
+        raise RuntimeError(
+            "Scaling changed the signal shape"
+        )
+
+    if not np.all(np.isfinite(scaled)):
+        raise RuntimeError(
+            "Scaled CWT signal contains NaN or infinite values"
+        )
+
+    return scaled, scale_value
+
+
 def main() -> int:
     """Run Milestone 1 input validation."""
 
