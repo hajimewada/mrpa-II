@@ -33,6 +33,11 @@ DEFAULT_MINIMUM_PERIOD_SECONDS = 0.05
 DEFAULT_MAX_INTERPOLATION_RATIO = 1.0
 DEFAULT_TIME_RTOL = 1e-6
 DEFAULT_TIME_ATOL = 1e-9
+DEFAULT_MINIMUM_DYNAMIC_RANGE = 1e-12
+
+SUPPORTED_CWT_DOMAINS = ("log-hz", "hz")
+SUPPORTED_CENTERING_METHODS = ("median", "mean", "none")
+SUPPORTED_SCALING_METHODS = ("none",)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -182,6 +187,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_TIME_ATOL,
         help="Absolute tolerance in seconds for uniform frame spacing.",
+    )
+    parser.add_argument(
+        "--minimum-dynamic-range",
+        type=float,
+        default=DEFAULT_MINIMUM_DYNAMIC_RANGE,
+        help=(
+            "Minimum required dynamic range after signal preparation. "
+            "Default: 1e-12."
+        ),
     )
 
     return parser
@@ -344,6 +358,16 @@ def validate_arguments(args: argparse.Namespace) -> Path:
 
     if not np.isfinite(args.time_atol) or args.time_atol < 0.0:
         raise ValueError("--time-atol must be finite and non-negative")
+
+    if not np.isfinite(args.minimum_dynamic_range):
+        raise ValueError(
+            "--minimum-dynamic-range must be finite"
+        )
+
+    if args.minimum_dynamic_range < 0.0:
+        raise ValueError(
+            "--minimum-dynamic-range must be non-negative"
+        )
 
     return metadata_output
 
@@ -754,6 +778,157 @@ def validate_interpolation_ratio(
             "Interpolation ratio exceeds the configured maximum: "
             f"{ratio:.6f} > {maximum_ratio:.6f}"
         )
+
+
+def validate_signal_array(
+    signal: np.ndarray,
+    *,
+    name: str,
+    require_positive: bool,
+) -> np.ndarray:
+    """Validate a one-dimensional numerical signal.
+
+    Args:
+        signal:
+            Input array to validate.
+        name:
+            Human-readable name used in error messages.
+        require_positive:
+            If true, every value must be strictly greater than zero.
+
+    Returns:
+        An independent float64 copy of the validated signal.
+    """
+
+    array = np.asarray(signal)
+
+    if array.ndim != 1:
+        raise ValueError(
+            f"{name} must be one-dimensional, got shape {array.shape}"
+        )
+
+    if array.size == 0:
+        raise ValueError(f"{name} must not be empty")
+
+    try:
+        validated = np.array(
+            array,
+            dtype=np.float64,
+            copy=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"{name} must contain numerical values"
+        ) from error
+
+    if not np.all(np.isfinite(validated)):
+        raise ValueError(
+            f"{name} contains NaN or infinite values"
+        )
+
+    if require_positive and np.any(validated <= 0.0):
+        raise ValueError(
+            f"{name} must contain only positive values"
+        )
+
+    return validated
+
+
+def convert_f0_domain(
+    continuous_f0: np.ndarray,
+    *,
+    domain: str,
+) -> np.ndarray:
+    """Convert continuous F0 into the selected CWT analysis domain.
+
+    Supported domains:
+
+    - log-hz: natural logarithm of F0 in Hz;
+    - hz: unchanged F0 in Hz.
+
+    The input array is never modified.
+    """
+
+    if domain not in SUPPORTED_CWT_DOMAINS:
+        raise ValueError(
+            f"Unsupported CWT signal domain: {domain}"
+        )
+
+    f0 = validate_signal_array(
+        continuous_f0,
+        name="Continuous-F0 input",
+        require_positive=True,
+    )
+
+    if domain == "log-hz":
+        converted = np.log(f0)
+    else:
+        converted = f0.copy()
+
+    converted = np.asarray(converted, dtype=np.float64)
+
+    if converted.shape != f0.shape:
+        raise RuntimeError(
+            "Domain conversion changed the signal shape"
+        )
+
+    if not np.all(np.isfinite(converted)):
+        raise RuntimeError(
+            "Domain-converted CWT signal contains "
+            "NaN or infinite values"
+        )
+
+    return converted
+
+
+def center_signal(
+    signal: np.ndarray,
+    *,
+    centering: str,
+) -> tuple[np.ndarray, float]:
+    """Center a CWT input signal.
+
+    Supported methods:
+
+    - median: subtract the signal median;
+    - mean: subtract the signal mean;
+    - none: return an unchanged independent copy.
+    """
+
+    if centering not in SUPPORTED_CENTERING_METHODS:
+        raise ValueError(
+            f"Unsupported CWT signal centering: {centering}"
+        )
+
+    validated = validate_signal_array(
+        signal,
+        name="CWT domain signal",
+        require_positive=False,
+    )
+
+    if centering == "median":
+        center_value = float(np.median(validated))
+        centered = validated - center_value
+    elif centering == "mean":
+        center_value = float(np.mean(validated))
+        centered = validated - center_value
+    else:
+        center_value = 0.0
+        centered = validated.copy()
+
+    centered = np.asarray(centered, dtype=np.float64)
+
+    if centered.shape != validated.shape:
+        raise RuntimeError(
+            "Centering changed the signal shape"
+        )
+
+    if not np.all(np.isfinite(centered)):
+        raise RuntimeError(
+            "Centered CWT signal contains NaN or infinite values"
+        )
+
+    return centered, center_value
 
 
 def main() -> int:

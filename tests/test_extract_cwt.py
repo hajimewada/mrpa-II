@@ -8,6 +8,8 @@ import pytest
 
 from analysis.f0.extract_cwt import (
     MINIMUM_FRAMES,
+    center_signal,
+    convert_f0_domain,
     default_metadata_path,
     infer_sampling_period,
     load_core_inputs,
@@ -63,6 +65,7 @@ def make_args(
         max_interpolation_ratio=1.0,
         time_rtol=1e-6,
         time_atol=1e-9,
+        minimum_dynamic_range=1e-12,
     )
 
 
@@ -408,3 +411,288 @@ def test_validate_arguments_rejects_invalid_numeric_values(
 
     with pytest.raises(ValueError, match=message):
         validate_arguments(args)
+
+def test_validate_arguments_accepts_default_dynamic_range(
+    tmp_path,
+) -> None:
+    f0, time_axis = make_valid_arrays()
+
+    f0_path = tmp_path / "f0.npy"
+    time_path = tmp_path / "time.npy"
+    output_path = tmp_path / "cwt.npz"
+
+    np.save(f0_path, f0)
+    np.save(time_path, time_axis)
+
+    args = make_args(
+        input_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+
+    metadata_path = validate_arguments(args)
+
+    assert metadata_path == default_metadata_path(output_path)
+    assert args.minimum_dynamic_range == 1e-12
+
+
+def test_validate_arguments_accepts_zero_dynamic_range_threshold(
+    tmp_path,
+) -> None:
+    f0, time_axis = make_valid_arrays()
+
+    f0_path = tmp_path / "f0.npy"
+    time_path = tmp_path / "time.npy"
+    output_path = tmp_path / "cwt.npz"
+
+    np.save(f0_path, f0)
+    np.save(time_path, time_axis)
+
+    args = make_args(
+        input_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+    args.minimum_dynamic_range = 0.0
+
+    validate_arguments(args)
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        -1.0,
+        np.nan,
+        np.inf,
+    ],
+)
+def test_validate_arguments_rejects_invalid_dynamic_range(
+    tmp_path,
+    invalid_value: float,
+) -> None:
+    f0, time_axis = make_valid_arrays()
+
+    f0_path = tmp_path / "f0.npy"
+    time_path = tmp_path / "time.npy"
+    output_path = tmp_path / "cwt.npz"
+
+    np.save(f0_path, f0)
+    np.save(time_path, time_axis)
+
+    args = make_args(
+        input_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+    args.minimum_dynamic_range = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match="minimum-dynamic-range",
+    ):
+        validate_arguments(args)
+
+
+def test_convert_f0_domain_log_hz() -> None:
+    f0 = np.array(
+        [100.0, 200.0, 400.0],
+        dtype=np.float64,
+    )
+    original = f0.copy()
+
+    converted = convert_f0_domain(
+        f0,
+        domain="log-hz",
+    )
+
+    np.testing.assert_allclose(
+        converted,
+        np.log(f0),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    assert converted.dtype == np.float64
+    assert converted.shape == f0.shape
+    assert np.array_equal(f0, original)
+    assert not np.shares_memory(converted, f0)
+
+
+def test_convert_f0_domain_hz_returns_independent_copy() -> None:
+    f0 = np.array(
+        [100.0, 200.0, 400.0],
+        dtype=np.float64,
+    )
+
+    converted = convert_f0_domain(
+        f0,
+        domain="hz",
+    )
+
+    assert np.array_equal(converted, f0)
+    assert converted.dtype == np.float64
+    assert not np.shares_memory(converted, f0)
+
+
+def test_convert_f0_domain_rejects_unsupported_domain() -> None:
+    f0 = np.array([100.0, 200.0], dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported CWT signal domain",
+    ):
+        convert_f0_domain(
+            f0,
+            domain="invalid",
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_f0",
+    [
+        np.array([100.0, 0.0, 200.0]),
+        np.array([100.0, -1.0, 200.0]),
+        np.array([100.0, np.nan, 200.0]),
+        np.array([100.0, np.inf, 200.0]),
+    ],
+)
+def test_convert_f0_domain_rejects_invalid_values(
+    invalid_f0: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError):
+        convert_f0_domain(
+            invalid_f0,
+            domain="log-hz",
+        )
+
+
+def test_convert_f0_domain_rejects_multidimensional_input() -> None:
+    f0 = np.full((2, 2), 220.0, dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="one-dimensional",
+    ):
+        convert_f0_domain(
+            f0,
+            domain="log-hz",
+        )
+
+
+def test_center_signal_median() -> None:
+    signal = np.array(
+        [1.0, 2.0, 10.0],
+        dtype=np.float64,
+    )
+    original = signal.copy()
+
+    centered, center_value = center_signal(
+        signal,
+        centering="median",
+    )
+
+    expected = np.array(
+        [-1.0, 0.0, 8.0],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_allclose(
+        centered,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert np.isclose(
+        center_value,
+        2.0,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert np.isclose(
+        np.median(centered),
+        0.0,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert np.array_equal(signal, original)
+    assert not np.shares_memory(centered, signal)
+
+
+def test_center_signal_mean() -> None:
+    signal = np.array(
+        [1.0, 2.0, 10.0],
+        dtype=np.float64,
+    )
+
+    centered, center_value = center_signal(
+        signal,
+        centering="mean",
+    )
+
+    expected_center = 13.0 / 3.0
+    expected = signal - expected_center
+
+    np.testing.assert_allclose(
+        centered,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert np.isclose(
+        center_value,
+        expected_center,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert np.isclose(
+        np.mean(centered),
+        0.0,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_center_signal_none_returns_independent_copy() -> None:
+    signal = np.array(
+        [1.0, 2.0, 10.0],
+        dtype=np.float64,
+    )
+
+    centered, center_value = center_signal(
+        signal,
+        centering="none",
+    )
+
+    assert np.array_equal(centered, signal)
+    assert center_value == 0.0
+    assert not np.shares_memory(centered, signal)
+
+
+def test_center_signal_rejects_unsupported_method() -> None:
+    signal = np.array([1.0, 2.0], dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported CWT signal centering",
+    ):
+        center_signal(
+            signal,
+            centering="invalid",
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_signal",
+    [
+        np.array([1.0, np.nan, 2.0]),
+        np.array([1.0, np.inf, 2.0]),
+    ],
+)
+def test_center_signal_rejects_non_finite_values(
+    invalid_signal: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError):
+        center_signal(
+            invalid_signal,
+            centering="median",
+        )
