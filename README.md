@@ -1,438 +1,385 @@
-MRPA-II
+# MRPA-II
 
-Multi-Resolution Prosodic Analysis II
+**Multi-Resolution Prosodic Analysis II**
 
-MRPA-II is a research project investigating whether prosodic structure can be discovered directly from acoustic signals without assuming predefined linguistic categories such as Pitch Accent, Accentual Phrase, Downstep, Tone, or Stress.
+MRPA-II is a research project investigating whether prosodic structure can be discovered directly from acoustic signals without assuming predefined linguistic categories such as pitch accent, accentual phrase, downstep, tone, or stress.
 
-Rather than treating prosody as a collection of language-specific labels, MRPA-II explores whether prosodic organization emerges from a small set of universal prosodic primitives and their topological relationships.
+Rather than treating prosody as a collection of language-specific labels, MRPA-II explores whether prosodic organization emerges from a small set of universal prosodic primitives and their topological relationships. Its long-term goal is to construct a **Universal Prosodic Topology (UPT)**.
 
-The long-term goal is the construction of a Universal Prosodic Topology (UPT).
+## Table of Contents
 
-Vision
+- [Vision](#vision)
+- [Core Hypotheses](#core-hypotheses)
+- [Design Principles](#design-principles)
+- [Universal Prosodic Primitives](#universal-prosodic-primitives)
+- [Prosodic Node](#prosodic-node)
+- [Pipelines](#pipelines)
+- [Repository Structure](#repository-structure)
+- [Quick Start](#quick-start)
+- [Research Roadmap](#research-roadmap)
+- [Current Status](#current-status)
+- [Future Direction](#future-direction)
+- [Long-Term Goal](#long-term-goal)
 
-MRPA-II is part of a broader research program aimed at representing linguistic structure through topology rather than predefined symbolic categories.
+## Vision
 
-Plain Text
+MRPA-II is part of a broader research program aimed at representing linguistic structure through topology rather than predefined symbolic categories:
+
+```text
 GNST
-↓
+  ↓
 Semantic Topology
- 
+
 MRPA
-↓
+  ↓
 Prosodic Topology
- 
+
 LLINGTOPOL
-↓
+  ↓
 Linguistic Topology
- 
-Semantic Topology
-×
-Prosodic Topology
-↓
+
+Semantic Topology × Prosodic Topology
+  ↓
 Linguistic Topology
+```
 
 MRPA provides the prosodic component of this framework.
 
-Core Hypotheses
+## Core Hypotheses
 
 MRPA-II is built on four central hypotheses.
 
-H1. Prosodic structure emerges from variable-length nodes
+### H1. Prosodic structure emerges from variable-length nodes
 
-Prosodic organization is not fundamentally composed of predefined units such as syllables, accent phrases, or intonation phrases.
+Prosodic organization is not fundamentally composed of predefined units such as syllables, accent phrases, or intonation phrases. Instead, it emerges from variable-length prosodic nodes discovered directly from acoustic structure.
 
-Instead, it emerges from variable-length prosodic nodes discovered directly from acoustic structure.
+### H2. Boundaries and nuclei are more fundamental than labels
 
-H2. Boundaries and nuclei are more fundamental than labels
+Traditional linguistic categories may be secondary interpretations of more primitive prosodic phenomena. MRPA therefore treats **boundaries** and **nuclei** as primary observations.
 
-Traditional linguistic categories may be secondary interpretations of more primitive prosodic phenomena.
+Labels such as pitch accent, downstep, tone, stress, and accentual phrase are introduced only as language-specific interpretations.
 
-MRPA therefore treats:
+### H3. ScaleProfile provides a shared coordinate system
 
-Boundary
-Nucleus
+Prosodic organization operates across multiple temporal scales. MRPA represents this structure through a continuous `ScaleProfile` rather than a predefined hierarchy of categories. Different languages may occupy different regions within the same scale space.
 
-as primary observations.
+### H4. Topology comes before linguistic interpretation
 
-Labels such as:
+Prosodic topology should be discovered first. Language-specific analyses are applied later through language adapters.
 
-Pitch Accent
-Downstep
-Tone
-Stress
-Accentual Phrase
+## Design Principles
 
-are introduced only as language-specific interpretations.
+### Boundary first
 
-H3. ScaleProfile provides a shared coordinate system
+Prosodic structure begins with boundary discovery. Boundaries determine how acoustic events are organized into larger structures.
 
-Prosodic organization operates across multiple temporal scales.
+### Topology before labels
 
-MRPA represents this structure through a continuous ScaleProfile rather than a predefined hierarchy of categories.
+MRPA does not assume linguistic categories during discovery. Topology is learned before labels are assigned.
 
-Different languages may occupy different regions within the same scale space.
+### Universal before language-specific
 
-H4. Topology comes before linguistic interpretation
+The initial representation should be language-independent whenever possible. Language-specific concepts are introduced through adapters.
 
-Prosodic topology should be discovered first.
+### Variable-length representation
 
-Language-specific analyses are applied later through language adapters.
+Prosodic units are not assumed to have fixed durations. Nodes may be short, long, nested, or recursively organized.
 
-Design Principles
-Boundary First
+## Universal Prosodic Primitives
 
-Prosodic structure begins with boundary discovery.
+MRPA-II assumes four language-independent primitives:
 
-Boundaries determine how acoustic events are organized into larger structures.
+- Boundary
+- Nucleus
+- `ScaleProfile`
+- Recursive containment
 
-Topology Before Labels
+These primitives form the basis for constructing prosodic topology. Language-specific phenomena such as pitch accent, downstep, tone, tone sandhi, stress, and accentual phrase are treated as projections from these primitives.
 
-MRPA does not assume linguistic categories during discovery.
+## Prosodic Node
 
-Topology is learned before assigning labels.
+The core representational unit of MRPA-II is the `ProsodicNode`:
 
-Universal Before Language-Specific
-
-The initial representation should be language-independent whenever possible.
-
-Language-specific concepts are introduced through adapters.
-
-Variable-Length Representation
-
-Prosodic units are not assumed to have fixed duration.
-
-Nodes may be short, long, nested, or recursively organized.
-
-Universal Prosodic Primitives
-
-MRPA-II assumes four language-independent primitives.
-
-Plain Text
-Boundary
-Nucleus
-ScaleProfile
-Recursive Containment
-
-These primitives serve as the basis for constructing prosodic topology.
-
-Language-specific phenomena such as:
-
-Pitch Accent
-Downstep
-Tone
-Tone Sandhi
-Stress
-Accentual Phrase
-
-are treated as projections from these primitives.
-
-Prosodic Node
-
-The core representational unit of MRPA-II is the ProsodicNode.
-
-Python
+```text
 ProsodicNode:
-{
-Boundary
-Nucleus
-ScaleProfile
- 
-Children
-}
+  Boundary
+  Nucleus
+  ScaleProfile
+  Children
+```
 
-A ProsodicNode may recursively contain other ProsodicNodes.
+A `ProsodicNode` may recursively contain other `ProsodicNode` instances. This allows prosodic structure to emerge naturally across multiple temporal resolutions.
 
-This allows prosodic structure to emerge naturally across multiple temporal resolutions.
+## Pipelines
 
-Current Implemented Pipeline
+### Current implemented pipeline
 
-The following components are currently implemented.
+The following components are currently implemented:
 
-Plain Text
+```text
 Audio
-↓
-F0 Extraction
-↓
-F0 Interpolation
-↓
+  ↓
+F0 extraction
+  ↓
+F0 interpolation
+  ↓
 Continuous Wavelet Transform (CWT)
-↓
-ScaleProfile Extraction
+  ↓
+ScaleProfile extraction
+```
 
-Current repository outputs:
+Current repository outputs include F0 curves, CWT representations, and `ScaleProfile` measurements.
 
-Plain Text
-F0 Curves
-CWT Representations
-ScaleProfile Measurements
-Planned Pipeline
+### Planned pipeline
 
-The next stages of MRPA-II extend the current system toward node discovery and topology construction.
+The next stages extend the current system toward node discovery and topology construction:
 
-Plain Text
+```text
 Audio
-↓
-F0 Extraction
-↓
-F0 Interpolation
-↓
+  ↓
+F0 extraction
+  ↓
+F0 interpolation
+  ↓
 Continuous Wavelet Transform
-↓
+  ↓
 ScaleProfile
-↓
-Boundary Discovery
-↓
-Nucleus Discovery
-↓
-Variable-Length Prosodic Nodes
-↓
-Prosodic Topology
-↓
+  ↓
+Boundary discovery
+  ↓
+Nucleus discovery
+  ↓
+Variable-length prosodic nodes
+  ↓
+Prosodic topology
+  ↓
 Universal Prosodic Topology
-Repository Structure
-Plain Text
+```
+
+## Repository Structure
+
+```text
 analysis/
 docs/
 external/
- 
-data/
-├── jsut/
-│ ├── raw/
-│ ├── f0/
-│ ├── cwt/
-│ └── results/
- 
-figures/
-Quick Start
-1. Environment
-Shell
-python -m venv .venv
-source .venv/bin/activate
- 
-pip install -r requirements.txt
-2. Download JSUT
-
-Download JSUT v1.1 and extract it under:
-
-Plain Text
-data/jsut/raw/jsut_ver1.1/
- 
-
-Expected structure:
-
-Plain Text
 data/
 └── jsut/
-└── raw/
-└── jsut_ver1.1/
-├── basic5000/
-├── travel1000/
-├── repeat500/
-└── ...
-3. Extract F0
-Shell
+    ├── raw/
+    ├── f0/
+    ├── cwt/
+    └── results/
+figures/
+```
+
+## Quick Start
+
+### 1. Set up the environment
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Download JSUT
+
+Download JSUT v1.1 and extract it under `data/jsut/raw/jsut_ver1.1/`. The expected structure is:
+
+```text
+data/
+└── jsut/
+    └── raw/
+        └── jsut_ver1.1/
+            ├── basic5000/
+            ├── travel1000/
+            ├── repeat500/
+            └── ...
+```
+
+### 3. Extract F0
+
+```sh
 python analysis/f0/extract_real_f0.py \
---input data/jsut/raw/jsut_ver1.1/basic5000/wav/BASIC5000_0459.wav \
---output data/jsut/f0/BASIC5000_0459_f0.npy
+  --input data/jsut/raw/jsut_ver1.1/basic5000/wav/BASIC5000_0459.wav \
+  --output data/jsut/f0/BASIC5000_0459_f0.npy
+```
 
 Example output:
 
-Plain Text
+```text
 saved: BASIC5000_0459_f0.npy
 shape: (329,)
 voiced frames: 208
- 
-4. Interpolate F0
-Shell
+```
+
+### 4. Interpolate F0
+
+```sh
 python analysis/f0/interpolate_f0.py \
---input data/jsut/f0/BASIC5000_0459_f0.npy \
---output data/jsut/f0/BASIC5000_0459_f0_interp.npy
-5. Compute CWT
-Shell
+  --input data/jsut/f0/BASIC5000_0459_f0.npy \
+  --output data/jsut/f0/BASIC5000_0459_f0_interp.npy
+```
+
+### 5. Compute CWT
+
+```sh
 python analysis/f0/extract_cwt.py \
---input data/jsut/f0/BASIC5000_0459_f0_interp.npy \
---output data/jsut/cwt/BASIC5000_0459_cwt.npz
+  --input data/jsut/f0/BASIC5000_0459_f0_interp.npy \
+  --output data/jsut/cwt/BASIC5000_0459_cwt.npz
+```
 
 Example output:
 
-Plain Text
+```text
 input shape : (329,)
 cwt shape : (64, 329)
-6. Extract ScaleProfile
-Shell
+```
+
+### 6. Extract ScaleProfile
+
+```sh
 python analysis/f0/scale_energy.py \
---input data/jsut/cwt/BASIC5000_0459_cwt.npz
+  --input data/jsut/cwt/BASIC5000_0459_cwt.npz
+```
 
 Example output:
 
-Plain Text
+```text
 Peak:
 Scale = 64
 Freq = 0.01270
 Energy = 84.33
-7. Plot F0
-Shell
+```
+
+### 7. Plot F0
+
+```sh
 python analysis/f0/plot_f0.py \
---input data/jsut/f0/BASIC5000_0459_f0.npy
-8. Plot Scale Energy
-Shell
+  --input data/jsut/f0/BASIC5000_0459_f0.npy
+```
+
+### 8. Plot Scale Energy
+
+```sh
 python analysis/f0/plot_scale_energy.py \
---input data/jsut/cwt/BASIC5000_0459_cwt.npz
-Research Roadmap
-MRPA-I ✅
-Prosodic Spectral Analysis
+  --input data/jsut/cwt/BASIC5000_0459_cwt.npz
+```
 
-Achievements:
+## Research Roadmap
 
-Artificial prosody generation
-Frequency sweep experiments
-Scale-frequency correspondence
-Real JSUT F0 extraction
-Continuous Wavelet Transform analysis
-ScaleProfile extraction
+### MRPA-I: Prosodic Spectral Analysis — complete
 
-Output:
+**Achievements:**
 
-Plain Text
-ScaleProfile
-MRPA-II 🚧
-Prosodic Primitive Discovery
+- Artificial prosody generation
+- Frequency sweep experiments
+- Scale-frequency correspondence
+- Real JSUT F0 extraction
+- Continuous Wavelet Transform analysis
+- `ScaleProfile` extraction
 
-Objectives:
+**Output:** `ScaleProfile`
 
-Plain Text
-Boundary Discovery
-↓
-Nucleus Discovery
-↓
-ScaleProfile Assignment
+### MRPA-II: Prosodic Primitive Discovery — in progress
 
-Research Questions:
+**Objectives:**
 
-What defines a prosodic boundary?
-What defines a prosodic nucleus?
-Can prosodic primitives emerge without linguistic labels?
+```text
+Boundary discovery
+  ↓
+Nucleus discovery
+  ↓
+ScaleProfile assignment
+```
 
-Output:
+**Research questions:**
 
-Plain Text
-Boundary
-Nucleus
-ScaleProfile
-MRPA-III
-Variable-Length Prosodic Nodes
+- What defines a prosodic boundary?
+- What defines a prosodic nucleus?
+- Can prosodic primitives emerge without linguistic labels?
 
-Objectives:
+**Output:** Boundary, Nucleus, and `ScaleProfile`
 
-Plain Text
-Primitive Integration
-↓
-Node Construction
-↓
-Recursive Containment
+### MRPA-III: Variable-Length Prosodic Nodes
 
-Output:
+**Objectives:**
 
-Plain Text
-ProsodicNode
-MRPA-IV
-Prosodic Topology
+```text
+Primitive integration
+  ↓
+Node construction
+  ↓
+Recursive containment
+```
 
-Objectives:
+**Output:** `ProsodicNode`
 
-Plain Text
-Node Similarity
-↓
-Node Graph
-↓
-Topology Construction
+### MRPA-IV: Prosodic Topology
 
-Output:
+**Objectives:**
 
-Plain Text
-Prosodic Topology
-Prosodic Manifold
-MRPA-V
-Universal Prosodic Topology
+```text
+Node similarity
+  ↓
+Node graph
+  ↓
+Topology construction
+```
 
-Objectives:
+**Outputs:** Prosodic topology and prosodic manifold
 
-Cross-linguistic validation across:
+### MRPA-V: Universal Prosodic Topology
 
-Japanese
-Mandarin
-Korean
-English
+**Objective:** Cross-linguistic validation across Japanese, Mandarin, Korean, and English.
 
-Research Goal:
+**Research goal:** Evaluate whether Boundary, Nucleus, and `ScaleProfile` function as universal prosodic primitives.
 
-Evaluate whether
+### MRPA-VI: GNST and LLINGTOPOL Integration
 
-Plain Text
-Boundary
-Nucleus
-ScaleProfile
+**Objectives:**
 
-function as universal prosodic primitives.
-
-MRPA-VI
-GNST and LLINGTOPOL Integration
-
-Objectives:
-
-Plain Text
-Semantic Topology
-×
-Prosodic Topology
-↓
+```text
+Semantic Topology × Prosodic Topology
+  ↓
 Linguistic Topology
+```
 
-Potential applications include:
+Potential applications include boundary prediction, information routing, multimodal topology learning, and speech-language integration.
 
-Boundary prediction
-Information routing
-Multimodal topology learning
-Speech-language integration
-Current Status
+## Current Status
 
-Implemented:
+### Implemented
 
-Plain Text
-✅ JSUT integration
-✅ F0 extraction
-✅ F0 interpolation
-✅ Continuous Wavelet Transform
-✅ ScaleProfile extraction
-✅ Frequency sweep experiments
-✅ Real utterance analysis
+- JSUT integration
+- F0 extraction
+- F0 interpolation
+- Continuous Wavelet Transform
+- `ScaleProfile` extraction
+- Frequency sweep experiments
+- Real utterance analysis
 
-In Progress:
+### In progress
 
-Plain Text
-🚧 Boundary discovery
-🚧 Nucleus discovery
-🚧 Variable-length prosodic nodes
-🚧 ScaleProfile assignment to nodes
-🚧 Prosodic topology construction
-Future Direction
+- Boundary discovery
+- Nucleus discovery
+- Variable-length prosodic nodes
+- `ScaleProfile` assignment to nodes
+- Prosodic topology construction
+
+## Future Direction
 
 MRPA is expected to provide the prosodic foundation for future topology-based models of linguistic information flow.
 
-One possible direction is the development of Boundary-Driven Topological Models (DBTM), where prosodic boundaries influence routing and structural organization across multiple processing scales.
+One possible direction is the development of **Boundary-Driven Topological Models (DBTM)**, where prosodic boundaries influence routing and structural organization across multiple processing scales. This direction remains future work and is intentionally separated from the core objectives of MRPA-II.
 
-This direction remains future work and is intentionally separated from the core objectives of MRPA-II.
+## Long-Term Goal
 
-Long-Term Goal
+The ultimate objective of MRPA is to discover a Universal Prosodic Topology and integrate it with semantic topology research:
 
-The ultimate objective of MRPA is to discover a Universal Prosodic Topology and integrate it with semantic topology research.
-
-Plain Text
-Semantic Topology
-×
-Prosodic Topology
-↓
+```text
+Semantic Topology × Prosodic Topology
+  ↓
 Linguistic Topology
+```
 
-Under this view, linguistic structure is not predefined.
-
-It emerges from the interaction of topological structures learned directly from language and speech.
+Under this view, linguistic structure is not predefined. It emerges from the interaction of topological structures learned directly from language and speech.
