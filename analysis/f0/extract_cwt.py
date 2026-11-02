@@ -999,6 +999,87 @@ def scale_signal(
     return scaled, scale_value
 
 
+def validate_signal_variation(
+    signal: np.ndarray,
+    *,
+    minimum_dynamic_range: float = DEFAULT_MINIMUM_DYNAMIC_RANGE,
+) -> float:
+    """Validate that a prepared CWT signal has measurable variation.
+
+    Dynamic range is defined as the difference between the maximum and
+    minimum signal values:
+
+        dynamic_range = max(signal) - min(signal)
+
+    The signal is accepted only when its dynamic range is strictly
+    greater than ``minimum_dynamic_range``.
+
+    Args:
+        signal:
+            One-dimensional finite numerical signal. Positive and
+            negative values are both permitted.
+        minimum_dynamic_range:
+            Finite, non-negative threshold for the required signal
+            variation. Boolean values are not accepted.
+
+    Returns:
+        The measured dynamic range as a Python float.
+
+    Raises:
+        ValueError:
+            If the signal is invalid, the threshold is invalid, or the
+            measured dynamic range is not greater than the threshold.
+    """
+
+    if isinstance(
+        minimum_dynamic_range,
+        (bool, np.bool_),
+    ):
+        raise ValueError(
+            "minimum_dynamic_range must be "
+            "a finite non-negative number"
+        )
+
+    if not isinstance(
+        minimum_dynamic_range,
+        (int, float, np.integer, np.floating),
+    ):
+        raise ValueError(
+            "minimum_dynamic_range must be "
+            "a finite non-negative number"
+        )
+
+    threshold = float(minimum_dynamic_range)
+
+    if not np.isfinite(threshold) or threshold < 0.0:
+        raise ValueError(
+            "minimum_dynamic_range must be "
+            "a finite non-negative number"
+        )
+
+    validated = validate_signal_array(
+        signal,
+        name="Prepared CWT signal",
+        require_positive=False,
+    )
+
+    dynamic_range = float(np.ptp(validated))
+
+    if not np.isfinite(dynamic_range):
+        raise RuntimeError(
+            "Prepared CWT signal produced a non-finite dynamic range"
+        )
+
+    if dynamic_range <= threshold:
+        raise ValueError(
+            "CWT input has no measurable variation after transformation: "
+            f"dynamic range={dynamic_range:.12g}, "
+            f"required>{threshold:.12g}"
+        )
+
+    return dynamic_range
+
+
 def main() -> int:
     """Run Milestone 1 input validation."""
 

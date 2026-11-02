@@ -22,6 +22,7 @@ from analysis.f0.extract_cwt import (
     validate_interpolation_metadata,
     validate_interpolation_ratio,
     validate_metadata_sampling_period,
+    validate_signal_variation,
 )
 
 
@@ -802,3 +803,226 @@ def test_scale_signal_rejects_multidimensional_input() -> None:
             signal,
             scaling="none",
         )
+
+
+def test_validate_signal_variation_returns_dynamic_range() -> None:
+    signal = np.array(
+        [-1.0, 0.0, 2.0],
+        dtype=np.float64,
+    )
+    original = signal.copy()
+
+    dynamic_range = validate_signal_variation(
+        signal,
+        minimum_dynamic_range=1e-12,
+    )
+
+    assert np.isclose(
+        dynamic_range,
+        3.0,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert isinstance(dynamic_range, float)
+    assert np.array_equal(signal, original)
+
+
+def test_validate_signal_variation_accepts_zero_threshold() -> None:
+    signal = np.array(
+        [0.0, 1e-15],
+        dtype=np.float64,
+    )
+
+    dynamic_range = validate_signal_variation(
+        signal,
+        minimum_dynamic_range=0.0,
+    )
+
+    assert dynamic_range > 0.0
+    assert np.isclose(
+        dynamic_range,
+        1e-15,
+        rtol=1e-12,
+        atol=1e-18,
+    )
+
+
+def test_validate_signal_variation_accepts_range_above_threshold() -> None:
+    signal = np.array(
+        [0.0, 0.5001],
+        dtype=np.float64,
+    )
+
+    dynamic_range = validate_signal_variation(
+        signal,
+        minimum_dynamic_range=0.5,
+    )
+
+    assert np.isclose(
+        dynamic_range,
+        0.5001,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_validate_signal_variation_rejects_constant_signal() -> None:
+    signal = np.array(
+        [1.0, 1.0, 1.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="no measurable variation",
+    ):
+        validate_signal_variation(
+            signal,
+            minimum_dynamic_range=1e-12,
+        )
+
+
+def test_validate_signal_variation_rejects_range_equal_to_threshold() -> None:
+    signal = np.array(
+        [0.0, 0.5],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"required>0\.5",
+    ):
+        validate_signal_variation(
+            signal,
+            minimum_dynamic_range=0.5,
+        )
+
+
+def test_validate_signal_variation_rejects_range_below_threshold() -> None:
+    signal = np.array(
+        [0.0, 0.25],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="no measurable variation",
+    ):
+        validate_signal_variation(
+            signal,
+            minimum_dynamic_range=0.5,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_threshold",
+    [
+        -1.0,
+        np.nan,
+        np.inf,
+        -np.inf,
+        True,
+        False,
+        np.bool_(True),
+        np.bool_(False),
+        "1e-12",
+        None,
+    ],
+)
+def test_validate_signal_variation_rejects_invalid_threshold(
+    invalid_threshold,
+) -> None:
+    signal = np.array(
+        [-1.0, 0.0, 1.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="finite non-negative number",
+    ):
+        validate_signal_variation(
+            signal,
+            minimum_dynamic_range=invalid_threshold,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_signal",
+    [
+        np.array([0.0, np.nan, 1.0]),
+        np.array([0.0, np.inf, 1.0]),
+        np.array([0.0, -np.inf, 1.0]),
+    ],
+)
+def test_validate_signal_variation_rejects_non_finite_signal(
+    invalid_signal: np.ndarray,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="NaN or infinite",
+    ):
+        validate_signal_variation(
+            invalid_signal,
+            minimum_dynamic_range=1e-12,
+        )
+
+
+def test_validate_signal_variation_rejects_empty_signal() -> None:
+    signal = np.array([], dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="must not be empty",
+    ):
+        validate_signal_variation(
+            signal,
+            minimum_dynamic_range=1e-12,
+        )
+
+
+def test_validate_signal_variation_rejects_multidimensional_signal() -> None:
+    signal = np.ones((2, 2), dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="one-dimensional",
+    ):
+        validate_signal_variation(
+            signal,
+            minimum_dynamic_range=1e-12,
+        )
+
+
+def test_validate_signal_variation_accepts_numpy_float_threshold() -> None:
+    signal = np.array(
+        [-1.0, 0.0, 1.0],
+        dtype=np.float64,
+    )
+
+    dynamic_range = validate_signal_variation(
+        signal,
+        minimum_dynamic_range=np.float64(1e-12),
+    )
+
+    assert np.isclose(
+        dynamic_range,
+        2.0,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_validate_signal_variation_does_not_modify_input() -> None:
+    signal = np.array(
+        [-2.0, -0.5, 0.0, 3.0],
+        dtype=np.float64,
+    )
+    original = signal.copy()
+
+    validate_signal_variation(
+        signal,
+        minimum_dynamic_range=1e-12,
+    )
+
+    assert np.array_equal(signal, original)
