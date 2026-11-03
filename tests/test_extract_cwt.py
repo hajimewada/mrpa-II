@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from argparse import Namespace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -2208,3 +2211,225 @@ def test_generate_physical_scales_summary_is_complete() -> None:
     }
 
     assert set(summary) == expected_keys
+
+
+def create_cli_cwt_inputs(
+    tmp_path: Path,
+) -> tuple[Path, Path]:
+    """Create a valid variable-F0 fixture for CLI error-path tests."""
+
+    time_axis = np.arange(
+        201,
+        dtype=np.float64,
+    ) * 0.005
+
+    f0 = 220.0 * np.exp(
+        0.05 * np.sin(
+            2.0 * np.pi * 2.0 * time_axis
+        )
+    )
+
+    f0_path = tmp_path / "continuous_f0.npy"
+    time_path = tmp_path / "time.npy"
+
+    np.save(f0_path, f0)
+    np.save(time_path, time_axis)
+
+    return f0_path, time_path
+
+
+def run_extract_cwt_cli(
+    *,
+    f0_path: Path,
+    time_path: Path,
+    output_path: Path,
+    extra_arguments: list[str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run extract_cwt.py as a real CLI subprocess."""
+
+    repository_root = Path(__file__).resolve().parents[1]
+    script_path = (
+        repository_root
+        / "analysis"
+        / "f0"
+        / "extract_cwt.py"
+    )
+
+    command = [
+        sys.executable,
+        str(script_path),
+        "--input",
+        str(f0_path),
+        "--time-input",
+        str(time_path),
+        "--output",
+        str(output_path),
+    ]
+
+    if extra_arguments:
+        command.extend(extra_arguments)
+
+    return subprocess.run(
+        command,
+        cwd=repository_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra_arguments", "expected_message"),
+    [
+        (
+            ["--minimum-period", "0.019"],
+            "minimum period must span at least four frames",
+        ),
+        (
+            ["--maximum-period", "0.8"],
+            "maximum period exceeds half of the input duration",
+        ),
+        (
+            [
+                "--minimum-period",
+                "0.5",
+                "--maximum-period",
+                "0.5",
+            ],
+            "maximum-period must be greater than",
+        ),
+        (
+            ["--wavelet", "not-a-wavelet"],
+            "Unsupported continuous wavelet",
+        ),
+        (
+            ["--number-of-scales", "1"],
+            "number-of-scales must be at least 2",
+        ),
+    ],
+)
+def test_cwt_cli_rejects_invalid_semantic_configuration(
+    tmp_path: Path,
+    extra_arguments: list[str],
+    expected_message: str,
+) -> None:
+    f0_path, time_path = create_cli_cwt_inputs(tmp_path)
+    output_path = tmp_path / "invalid_cwt.npz"
+    metadata_path = tmp_path / "invalid_cwt_metadata.json"
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+        extra_arguments=extra_arguments,
+    )
+
+    assert result.returncode == 1
+    assert expected_message in result.stderr
+    assert not output_path.exists()
+    assert not metadata_path.exists()
+
+
+def test_cwt_cli_rejects_invalid_scale_spacing(
+    tmp_path: Path,
+) -> None:
+    """Argparse choice errors use the standard exit code 2."""
+
+    f0_path, time_path = create_cli_cwt_inputs(tmp_path)
+    output_path = tmp_path / "invalid_spacing_cwt.npz"
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+        extra_arguments=[
+            "--scale-spacing",
+            "invalid",
+        ],
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
+    assert "--scale-spacing" in result.stderr
+    assert not output_path.exists()
+
+
+def test_cwt_cli_rejects_period_below_operational_limit(
+    tmp_path: Path,
+) -> None:
+    """The four-frame limit rejects this before Nyquist conversion."""
+
+    f0_path, time_path = create_cli_cwt_inputs(tmp_path)
+    output_path = tmp_path / "nyquist_guard_cwt.npz"
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+        extra_arguments=[
+            "--minimum-period",
+            "0.005",
+        ],
+    )
+
+    assert result.returncode == 1
+    assert (
+        "minimum period must span at least four frames"
+        in result.stderr
+    )
+    assert not output_path.exists()
+
+
+def test_cwt_cli_rejects_constant_signal_without_output(
+    tmp_path: Path,
+) -> None:
+    time_axis = np.arange(
+        201,
+        dtype=np.float64,
+    ) * 0.005
+    constant_f0 = np.full(
+        201,
+        220.0,
+        dtype=np.float64,
+    )
+
+    f0_path = tmp_path / "constant_f0.npy"
+    time_path = tmp_path / "time.npy"
+    output_path = tmp_path / "constant_cwt.npz"
+    metadata_path = tmp_path / "constant_cwt_metadata.json"
+
+    np.save(f0_path, constant_f0)
+    np.save(time_path, time_axis)
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+
+    assert result.returncode == 1
+    assert "no measurable variation" in result.stderr
+    assert not output_path.exists()
+    assert not metadata_path.exists()
+
+
+def test_cwt_cli_error_message_is_written_to_stderr(
+    tmp_path: Path,
+) -> None:
+    f0_path, time_path = create_cli_cwt_inputs(tmp_path)
+    output_path = tmp_path / "stderr_test_cwt.npz"
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+        extra_arguments=[
+            "--wavelet",
+            "not-a-wavelet",
+        ],
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error:")
+    assert "Unsupported continuous wavelet" in result.stderr
+    assert not output_path.exists()
