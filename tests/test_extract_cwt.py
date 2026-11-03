@@ -11,6 +11,7 @@ from analysis.f0.extract_cwt import (
     center_signal,
     convert_f0_domain,
     default_metadata_path,
+    generate_period_grid,
     infer_sampling_period,
     load_core_inputs,
     load_interpolation_metadata,
@@ -1654,3 +1655,266 @@ def test_resolve_period_range_summary_is_complete() -> None:
     }
 
     assert set(summary) == expected_keys
+
+
+def test_generate_period_grid_log_spacing() -> None:
+    periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.8,
+        number_of_scales=5,
+        spacing="log",
+    )
+
+    expected = np.geomspace(
+        0.05,
+        0.8,
+        num=5,
+        dtype=np.float64,
+    )
+
+    np.testing.assert_allclose(
+        periods,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    assert periods.shape == (5,)
+    assert periods.dtype == np.float64
+    assert np.all(np.diff(periods) > 0.0)
+
+
+def test_generate_period_grid_linear_spacing() -> None:
+    periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.25,
+        number_of_scales=5,
+        spacing="linear",
+    )
+
+    expected = np.array(
+        [0.05, 0.10, 0.15, 0.20, 0.25],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_allclose(
+        periods,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize(
+    "spacing",
+    [
+        "log",
+        "linear",
+    ],
+)
+def test_generate_period_grid_preserves_endpoints(
+    spacing: str,
+) -> None:
+    minimum = 0.05
+    maximum = 0.5025
+
+    periods = generate_period_grid(
+        minimum_period=minimum,
+        maximum_period=maximum,
+        number_of_scales=64,
+        spacing=spacing,
+    )
+
+    assert periods[0] == minimum
+    assert periods[-1] == maximum
+
+
+@pytest.mark.parametrize(
+    "spacing",
+    [
+        "log",
+        "linear",
+    ],
+)
+def test_generate_period_grid_values_are_valid(
+    spacing: str,
+) -> None:
+    periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.5,
+        number_of_scales=64,
+        spacing=spacing,
+    )
+
+    assert periods.shape == (64,)
+    assert periods.dtype == np.float64
+    assert np.all(np.isfinite(periods))
+    assert np.all(periods > 0.0)
+    assert np.all(np.diff(periods) > 0.0)
+
+
+def test_generate_period_grid_log_has_constant_ratio() -> None:
+    periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.8,
+        number_of_scales=17,
+        spacing="log",
+    )
+
+    ratios = periods[1:] / periods[:-1]
+
+    np.testing.assert_allclose(
+        ratios,
+        np.full_like(ratios, ratios[0]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_generate_period_grid_linear_has_constant_difference() -> None:
+    periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.8,
+        number_of_scales=17,
+        spacing="linear",
+    )
+
+    differences = np.diff(periods)
+
+    np.testing.assert_allclose(
+        differences,
+        np.full_like(differences, differences[0]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_generate_period_grid_two_scales() -> None:
+    periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.5,
+        number_of_scales=2,
+        spacing="log",
+    )
+
+    assert np.array_equal(
+        periods,
+        np.array([0.05, 0.5], dtype=np.float64),
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_count",
+    [
+        0,
+        1,
+        -1,
+        2.5,
+        True,
+        False,
+        np.bool_(True),
+        "64",
+        None,
+    ],
+)
+def test_generate_period_grid_rejects_invalid_scale_count(
+    invalid_count,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="integer of at least 2",
+    ):
+        generate_period_grid(
+            minimum_period=0.05,
+            maximum_period=0.5,
+            number_of_scales=invalid_count,
+            spacing="log",
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_spacing",
+    [
+        "geometric",
+        "logarithmic",
+        "LINEAR",
+        "",
+        1,
+        None,
+    ],
+)
+def test_generate_period_grid_rejects_invalid_spacing(
+    invalid_spacing,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="spacing",
+    ):
+        generate_period_grid(
+            minimum_period=0.05,
+            maximum_period=0.5,
+            number_of_scales=64,
+            spacing=invalid_spacing,
+        )
+
+
+@pytest.mark.parametrize(
+    ("minimum_period", "maximum_period"),
+    [
+        (0.5, 0.5),
+        (0.6, 0.5),
+        (0.0, 0.5),
+        (-0.1, 0.5),
+        (0.05, 0.0),
+        (0.05, -0.5),
+        (np.nan, 0.5),
+        (0.05, np.inf),
+        (True, 0.5),
+        (0.05, False),
+        ("0.05", 0.5),
+        (0.05, "0.5"),
+    ],
+)
+def test_generate_period_grid_rejects_invalid_period_range(
+    minimum_period,
+    maximum_period,
+) -> None:
+    with pytest.raises(ValueError):
+        generate_period_grid(
+            minimum_period=minimum_period,
+            maximum_period=maximum_period,
+            number_of_scales=64,
+            spacing="log",
+        )
+
+
+def test_generate_period_grid_accepts_numpy_scalars() -> None:
+    periods = generate_period_grid(
+        minimum_period=np.float64(0.05),
+        maximum_period=np.float64(0.5),
+        number_of_scales=np.int64(8),
+        spacing="log",
+    )
+
+    assert periods.shape == (8,)
+    assert periods.dtype == np.float64
+    assert periods[0] == 0.05
+    assert periods[-1] == 0.5
+
+
+def test_generate_period_grid_returns_independent_arrays() -> None:
+    first = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.5,
+        number_of_scales=8,
+        spacing="log",
+    )
+    second = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.5,
+        number_of_scales=8,
+        spacing="log",
+    )
+
+    assert np.array_equal(first, second)
+    assert not np.shares_memory(first, second)

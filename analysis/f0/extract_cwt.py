@@ -41,6 +41,7 @@ PERIOD_RANGE_ATOL = 1e-12
 SUPPORTED_CWT_DOMAINS = ("log-hz", "hz")
 SUPPORTED_CENTERING_METHODS = ("median", "mean", "none")
 SUPPORTED_SCALING_METHODS = ("none",)
+SUPPORTED_PERIOD_SPACING = ("log", "linear")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1428,6 +1429,158 @@ def resolve_period_range(
     }
 
     return minimum, maximum, summary
+
+
+def generate_period_grid(
+    *,
+    minimum_period: float,
+    maximum_period: float,
+    number_of_scales: int,
+    spacing: str,
+) -> np.ndarray:
+    """Generate an ordered physical-period grid for CWT analysis.
+
+    The grid includes both the minimum and maximum period.
+
+    Supported spacing policies:
+
+    - ``log``: geometrically spaced periods using ``numpy.geomspace``;
+    - ``linear``: arithmetically spaced periods using
+      ``numpy.linspace``.
+
+    Args:
+        minimum_period:
+            Strictly positive lower endpoint in seconds.
+        maximum_period:
+            Strictly positive upper endpoint in seconds. It must be
+            strictly greater than ``minimum_period``.
+        number_of_scales:
+            Number of periods to generate. It must be an integer of at
+            least two. Boolean values are rejected.
+        spacing:
+            Either ``log`` or ``linear``.
+
+    Returns:
+        A one-dimensional float64 array of strictly increasing periods
+        in seconds.
+
+    Raises:
+        ValueError:
+            If an input is invalid or the generated grid violates the
+            period-grid contract.
+        RuntimeError:
+            If NumPy unexpectedly returns an array with an invalid
+            shape, dtype, or numerical value.
+    """
+
+    minimum = validate_positive_real(
+        minimum_period,
+        name="minimum_period",
+    )
+    maximum = validate_positive_real(
+        maximum_period,
+        name="maximum_period",
+    )
+
+    if isinstance(number_of_scales, (bool, np.bool_)):
+        raise ValueError(
+            "number_of_scales must be an integer of at least 2"
+        )
+
+    if not isinstance(
+        number_of_scales,
+        (int, np.integer),
+    ):
+        raise ValueError(
+            "number_of_scales must be an integer of at least 2"
+        )
+
+    scale_count = int(number_of_scales)
+
+    if scale_count < 2:
+        raise ValueError(
+            "number_of_scales must be an integer of at least 2"
+        )
+
+    if not isinstance(spacing, str):
+        raise ValueError(
+            "spacing must be one of: log, linear"
+        )
+
+    if spacing not in SUPPORTED_PERIOD_SPACING:
+        raise ValueError(
+            f"Unsupported period spacing: {spacing}"
+        )
+
+    if maximum <= minimum or np.isclose(
+        maximum,
+        minimum,
+        rtol=PERIOD_RANGE_RTOL,
+        atol=PERIOD_RANGE_ATOL,
+    ):
+        raise ValueError(
+            "maximum_period must be strictly greater than "
+            "minimum_period"
+        )
+
+    if spacing == "log":
+        periods = np.geomspace(
+            minimum,
+            maximum,
+            num=scale_count,
+            endpoint=True,
+            dtype=np.float64,
+        )
+    elif spacing == "linear":
+        periods = np.linspace(
+            minimum,
+            maximum,
+            num=scale_count,
+            endpoint=True,
+            dtype=np.float64,
+        )
+    else:
+        # Protected by the supported-spacing check above.
+        raise RuntimeError(
+            f"Period spacing is declared but not implemented: {spacing}"
+        )
+
+    periods = np.asarray(periods, dtype=np.float64)
+
+    expected_shape = (scale_count,)
+
+    if periods.shape != expected_shape:
+        raise RuntimeError(
+            "Generated period grid has an unexpected shape: "
+            f"{periods.shape} != {expected_shape}"
+        )
+
+    if periods.dtype != np.float64:
+        raise RuntimeError(
+            "Generated period grid must use float64 dtype"
+        )
+
+    if not np.all(np.isfinite(periods)):
+        raise RuntimeError(
+            "Generated period grid contains NaN or infinite values"
+        )
+
+    if np.any(periods <= 0.0):
+        raise RuntimeError(
+            "Generated period grid must contain only positive values"
+        )
+
+    if np.any(np.diff(periods) <= 0.0):
+        raise RuntimeError(
+            "Generated period grid must be strictly increasing"
+        )
+
+    # Set endpoints explicitly to remove any endpoint representation
+    # drift and preserve the requested interval exactly.
+    periods[0] = minimum
+    periods[-1] = maximum
+
+    return periods
 
 
 def main() -> int:
