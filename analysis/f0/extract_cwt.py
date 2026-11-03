@@ -1080,6 +1080,152 @@ def validate_signal_variation(
     return dynamic_range
 
 
+def prepare_cwt_signal(
+    continuous_f0: np.ndarray,
+    *,
+    domain: str = "log-hz",
+    centering: str = "median",
+    scaling: str = "none",
+    minimum_dynamic_range: float = DEFAULT_MINIMUM_DYNAMIC_RANGE,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Prepare a validated one-dimensional signal for CWT analysis.
+
+    The transformation order is:
+
+    1. validate and copy continuous F0;
+    2. convert the F0 domain;
+    3. center the domain signal;
+    4. apply the selected scaling policy;
+    5. validate the final dynamic range;
+    6. return the prepared signal and a reproducibility summary.
+
+    The input F0 array is never modified.
+
+    Args:
+        continuous_f0:
+            Positive, finite, one-dimensional F0 values in Hz.
+        domain:
+            Analysis domain. Supported values are ``log-hz`` and ``hz``.
+        centering:
+            Centering method. Supported values are ``median``, ``mean``,
+            and ``none``.
+        scaling:
+            Scaling method. Milestone 2 supports only ``none``.
+        minimum_dynamic_range:
+            Final signal dynamic range must be strictly greater than this
+            finite, non-negative threshold.
+
+    Returns:
+        A tuple containing:
+        - the prepared float64 CWT input signal;
+        - a JSON-compatible summary dictionary.
+
+    Raises:
+        ValueError:
+            If an input option or signal value is invalid, or if the final
+            signal does not contain sufficient variation.
+        RuntimeError:
+            If an internal transformation violates the expected shape,
+            dtype, finiteness, or input-preservation contract.
+    """
+
+    original_f0 = validate_signal_array(
+        continuous_f0,
+        name="Continuous-F0 input",
+        require_positive=True,
+    )
+    preservation_reference = original_f0.copy()
+
+    domain_signal = convert_f0_domain(
+        original_f0,
+        domain=domain,
+    )
+
+    domain_dynamic_range = float(np.ptp(domain_signal))
+
+    if not np.isfinite(domain_dynamic_range):
+        raise RuntimeError(
+            "Domain-converted CWT signal produced a non-finite "
+            "dynamic range"
+        )
+
+    centered_signal, center_value = center_signal(
+        domain_signal,
+        centering=centering,
+    )
+
+    prepared_signal, scale_value = scale_signal(
+        centered_signal,
+        scaling=scaling,
+    )
+
+    prepared_dynamic_range = validate_signal_variation(
+        prepared_signal,
+        minimum_dynamic_range=minimum_dynamic_range,
+    )
+
+    if prepared_signal.shape != original_f0.shape:
+        raise RuntimeError(
+            "CWT signal preparation changed the signal shape"
+        )
+
+    if prepared_signal.dtype != np.float64:
+        raise RuntimeError(
+            "Prepared CWT signal must use float64 dtype"
+        )
+
+    if not np.all(np.isfinite(prepared_signal)):
+        raise RuntimeError(
+            "Prepared CWT signal contains NaN or infinite values"
+        )
+
+    if not np.array_equal(
+        original_f0,
+        preservation_reference,
+    ):
+        raise RuntimeError(
+            "CWT signal preparation modified the validated F0 input"
+        )
+
+    # A centering transformation subtracts a constant, and the current
+    # scaling policy is identity scaling. The dynamic range should
+    # therefore remain unchanged except for floating-point round-off.
+    if not np.isclose(
+        domain_dynamic_range,
+        prepared_dynamic_range,
+        rtol=1e-12,
+        atol=1e-12,
+    ):
+        raise RuntimeError(
+            "CWT signal preparation unexpectedly changed "
+            "the dynamic range"
+        )
+
+    summary: dict[str, Any] = {
+        "domain": domain,
+        "centering": centering,
+        "scaling": scaling,
+        "center_value": float(center_value),
+        "scale_value": float(scale_value),
+        "number_of_frames": int(original_f0.size),
+        "input_f0_min_hz": float(np.min(original_f0)),
+        "input_f0_max_hz": float(np.max(original_f0)),
+        "input_f0_mean_hz": float(np.mean(original_f0)),
+        "input_f0_median_hz": float(np.median(original_f0)),
+        "domain_signal_min": float(np.min(domain_signal)),
+        "domain_signal_max": float(np.max(domain_signal)),
+        "domain_dynamic_range": domain_dynamic_range,
+        "prepared_signal_min": float(np.min(prepared_signal)),
+        "prepared_signal_max": float(np.max(prepared_signal)),
+        "prepared_signal_mean": float(np.mean(prepared_signal)),
+        "prepared_signal_median": float(np.median(prepared_signal)),
+        "prepared_dynamic_range": prepared_dynamic_range,
+        "minimum_dynamic_range": float(minimum_dynamic_range),
+    }
+
+    return prepared_signal, summary
+
+
 def main() -> int:
     """Run Milestone 1 input validation."""
 

@@ -15,6 +15,7 @@ from analysis.f0.extract_cwt import (
     load_core_inputs,
     load_interpolation_metadata,
     load_optional_mask,
+    prepare_cwt_signal,
     scale_signal,
     summarize_masks,
     validate_arguments,
@@ -1026,3 +1027,292 @@ def test_validate_signal_variation_does_not_modify_input() -> None:
     )
 
     assert np.array_equal(signal, original)
+
+
+def test_prepare_cwt_signal_default_pipeline() -> None:
+    time_axis = np.arange(800, dtype=np.float64) * 0.005
+    f0 = 220.0 * np.exp(
+        0.1 * np.sin(
+            2.0 * np.pi * 2.0 * time_axis
+        )
+    )
+    original = f0.copy()
+
+    prepared, summary = prepare_cwt_signal(f0)
+
+    assert prepared.shape == f0.shape
+    assert prepared.dtype == np.float64
+    assert np.all(np.isfinite(prepared))
+    assert np.array_equal(f0, original)
+    assert not np.shares_memory(prepared, f0)
+
+    assert summary["domain"] == "log-hz"
+    assert summary["centering"] == "median"
+    assert summary["scaling"] == "none"
+    assert summary["number_of_frames"] == f0.size
+    assert summary["scale_value"] == 1.0
+
+    assert np.isclose(
+        np.median(prepared),
+        0.0,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_prepare_cwt_signal_matches_known_log_f0_modulation() -> None:
+    time_axis = np.arange(800, dtype=np.float64) * 0.005
+
+    expected = 0.1 * np.sin(
+        2.0 * np.pi * 2.0 * time_axis
+    )
+    f0 = 220.0 * np.exp(expected)
+
+    prepared, summary = prepare_cwt_signal(
+        f0,
+        domain="log-hz",
+        centering="median",
+        scaling="none",
+    )
+
+    np.testing.assert_allclose(
+        prepared,
+        expected,
+        rtol=1e-11,
+        atol=1e-11,
+    )
+
+    assert np.isclose(
+        summary["center_value"],
+        np.log(220.0),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert np.isclose(
+        summary["prepared_dynamic_range"],
+        0.2,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_prepare_cwt_signal_hz_mean_centering() -> None:
+    f0 = np.array(
+        [100.0, 120.0, 140.0],
+        dtype=np.float64,
+    )
+
+    prepared, summary = prepare_cwt_signal(
+        f0,
+        domain="hz",
+        centering="mean",
+        scaling="none",
+    )
+
+    expected = np.array(
+        [-20.0, 0.0, 20.0],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_allclose(
+        prepared,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    assert np.isclose(summary["center_value"], 120.0)
+    assert np.isclose(summary["prepared_signal_mean"], 0.0)
+    assert np.isclose(summary["prepared_dynamic_range"], 40.0)
+
+
+def test_prepare_cwt_signal_without_centering() -> None:
+    f0 = np.array(
+        [100.0, 120.0, 140.0],
+        dtype=np.float64,
+    )
+
+    prepared, summary = prepare_cwt_signal(
+        f0,
+        domain="hz",
+        centering="none",
+        scaling="none",
+    )
+
+    assert np.array_equal(prepared, f0)
+    assert not np.shares_memory(prepared, f0)
+    assert summary["center_value"] == 0.0
+    assert summary["scale_value"] == 1.0
+
+
+def test_prepare_cwt_signal_rejects_constant_f0() -> None:
+    f0 = np.full(201, 220.0, dtype=np.float64)
+
+    with pytest.raises(
+        ValueError,
+        match="no measurable variation",
+    ):
+        prepare_cwt_signal(f0)
+
+
+def test_prepare_cwt_signal_rejects_near_constant_f0() -> None:
+    f0 = np.array(
+        [
+            220.0,
+            220.0 + 1e-14,
+            220.0,
+        ],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="no measurable variation",
+    ):
+        prepare_cwt_signal(
+            f0,
+            domain="hz",
+            minimum_dynamic_range=1e-12,
+        )
+
+
+def test_prepare_cwt_signal_respects_zero_dynamic_range_threshold() -> None:
+    f0 = np.array(
+        [220.0, 220.0 + 1e-10],
+        dtype=np.float64,
+    )
+
+    prepared, summary = prepare_cwt_signal(
+        f0,
+        domain="hz",
+        centering="none",
+        minimum_dynamic_range=0.0,
+    )
+
+    assert prepared.shape == f0.shape
+    assert summary["prepared_dynamic_range"] > 0.0
+    assert summary["minimum_dynamic_range"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("domain", "centering", "scaling", "message"),
+    [
+        (
+            "invalid",
+            "median",
+            "none",
+            "Unsupported CWT signal domain",
+        ),
+        (
+            "log-hz",
+            "invalid",
+            "none",
+            "Unsupported CWT signal centering",
+        ),
+        (
+            "log-hz",
+            "median",
+            "standard",
+            "Unsupported CWT signal scaling",
+        ),
+    ],
+)
+def test_prepare_cwt_signal_rejects_unsupported_options(
+    domain: str,
+    centering: str,
+    scaling: str,
+    message: str,
+) -> None:
+    f0 = np.array(
+        [100.0, 110.0, 120.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        prepare_cwt_signal(
+            f0,
+            domain=domain,
+            centering=centering,
+            scaling=scaling,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_f0",
+    [
+        np.array([100.0, 0.0, 120.0]),
+        np.array([100.0, -1.0, 120.0]),
+        np.array([100.0, np.nan, 120.0]),
+        np.array([100.0, np.inf, 120.0]),
+    ],
+)
+def test_prepare_cwt_signal_rejects_invalid_f0(
+    invalid_f0: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError):
+        prepare_cwt_signal(invalid_f0)
+
+
+def test_prepare_cwt_signal_summary_is_complete() -> None:
+    f0 = np.array(
+        [100.0, 110.0, 120.0],
+        dtype=np.float64,
+    )
+
+    _, summary = prepare_cwt_signal(
+        f0,
+        domain="log-hz",
+        centering="median",
+        scaling="none",
+    )
+
+    required_keys = {
+        "domain",
+        "centering",
+        "scaling",
+        "center_value",
+        "scale_value",
+        "number_of_frames",
+        "input_f0_min_hz",
+        "input_f0_max_hz",
+        "input_f0_mean_hz",
+        "input_f0_median_hz",
+        "domain_signal_min",
+        "domain_signal_max",
+        "domain_dynamic_range",
+        "prepared_signal_min",
+        "prepared_signal_max",
+        "prepared_signal_mean",
+        "prepared_signal_median",
+        "prepared_dynamic_range",
+        "minimum_dynamic_range",
+    }
+
+    assert required_keys == set(summary)
+
+
+def test_prepare_cwt_signal_summary_is_json_serializable() -> None:
+    f0 = np.array(
+        [100.0, 110.0, 120.0],
+        dtype=np.float64,
+    )
+
+    _, summary = prepare_cwt_signal(f0)
+
+    encoded = json.dumps(summary)
+    decoded = json.loads(encoded)
+
+    assert decoded["domain"] == "log-hz"
+    assert decoded["number_of_frames"] == 3
+
+
+def test_prepare_cwt_signal_preserves_input_exactly() -> None:
+    f0 = np.array(
+        [100.0, 110.0, 120.0],
+        dtype=np.float64,
+    )
+    original = f0.copy()
+
+    prepare_cwt_signal(f0)
+
+    assert np.array_equal(f0, original)
