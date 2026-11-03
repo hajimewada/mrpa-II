@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pywt
 
 
 MINIMUM_FRAMES = 16
@@ -1581,6 +1582,399 @@ def generate_period_grid(
     periods[-1] = maximum
 
     return periods
+
+
+def validate_requested_periods(
+    periods_seconds: np.ndarray,
+) -> np.ndarray:
+    """Validate a requested physical-period grid.
+
+    Args:
+        periods_seconds:
+            One-dimensional, finite, positive, strictly increasing
+            periods in seconds.
+
+    Returns:
+        An independent float64 copy of the validated periods.
+
+    Raises:
+        ValueError:
+            If the period grid violates the input contract.
+    """
+
+    periods = validate_signal_array(
+        periods_seconds,
+        name="Requested period grid",
+        require_positive=True,
+    )
+
+    if periods.size < 2:
+        raise ValueError(
+            "Requested period grid must contain at least two values"
+        )
+
+    if np.any(np.diff(periods) <= 0.0):
+        raise ValueError(
+            "Requested period grid must be strictly increasing"
+        )
+
+    return periods
+
+
+def validate_continuous_wavelet(
+    wavelet: str,
+) -> pywt.ContinuousWavelet:
+    """Validate and construct a PyWavelets continuous wavelet."""
+
+    if not isinstance(wavelet, str) or not wavelet.strip():
+        raise ValueError(
+            "wavelet must be a non-empty continuous-wavelet name"
+        )
+
+    try:
+        wavelet_object = pywt.ContinuousWavelet(wavelet)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"Unsupported continuous wavelet: {wavelet}"
+        ) from error
+
+    return wavelet_object
+
+
+def periods_to_frequencies(
+    periods_seconds: np.ndarray,
+) -> np.ndarray:
+    """Convert increasing physical periods to decreasing frequencies."""
+
+    periods = validate_requested_periods(periods_seconds)
+    frequencies = np.asarray(
+        1.0 / periods,
+        dtype=np.float64,
+    )
+
+    if frequencies.shape != periods.shape:
+        raise RuntimeError(
+            "Period-to-frequency conversion changed the array shape"
+        )
+
+    if not np.all(np.isfinite(frequencies)):
+        raise RuntimeError(
+            "Physical frequency grid contains NaN or infinite values"
+        )
+
+    if np.any(frequencies <= 0.0):
+        raise RuntimeError(
+            "Physical frequency grid must contain only positive values"
+        )
+
+    if np.any(np.diff(frequencies) >= 0.0):
+        raise RuntimeError(
+            "Physical frequency grid must be strictly decreasing"
+        )
+
+    return frequencies
+
+
+def frequencies_to_scales(
+    frequencies_hz: np.ndarray,
+    *,
+    wavelet: str,
+    sampling_period: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Convert physical frequencies in Hz to PyWavelets scales.
+
+    Returns:
+        A tuple containing:
+        - positive, strictly increasing wavelet scales;
+        - normalized frequencies in cycles per sample.
+    """
+
+    frequencies = validate_signal_array(
+        frequencies_hz,
+        name="Physical frequency grid",
+        require_positive=True,
+    )
+
+    if frequencies.size < 2:
+        raise ValueError(
+            "Physical frequency grid must contain at least two values"
+        )
+
+    if np.any(np.diff(frequencies) >= 0.0):
+        raise ValueError(
+            "Physical frequency grid must be strictly decreasing"
+        )
+
+    sampling = validate_positive_real(
+        sampling_period,
+        name="sampling_period",
+    )
+    wavelet_object = validate_continuous_wavelet(wavelet)
+
+    normalized_frequencies = np.asarray(
+        frequencies * sampling,
+        dtype=np.float64,
+    )
+
+    if np.any(normalized_frequencies > 0.5):
+        raise ValueError(
+            "Physical frequency grid exceeds the Nyquist frequency: "
+            f"maximum normalized frequency="
+            f"{np.max(normalized_frequencies):.12g}, allowed<=0.5"
+        )
+
+    if not hasattr(pywt, "frequency2scale"):
+        raise RuntimeError(
+            "Installed PyWavelets does not provide frequency2scale()"
+        )
+
+    try:
+        scales = pywt.frequency2scale(
+            wavelet_object,
+            normalized_frequencies,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Could not convert physical frequencies to wavelet scales"
+        ) from error
+
+    scales = np.asarray(scales, dtype=np.float64)
+
+    if scales.shape != frequencies.shape:
+        raise RuntimeError(
+            "Frequency-to-scale conversion changed the array shape"
+        )
+
+    if not np.all(np.isfinite(scales)):
+        raise RuntimeError(
+            "Wavelet scale grid contains NaN or infinite values"
+        )
+
+    if np.any(scales <= 0.0):
+        raise RuntimeError(
+            "Wavelet scale grid must contain only positive values"
+        )
+
+    if np.any(np.diff(scales) <= 0.0):
+        raise RuntimeError(
+            "Wavelet scale grid must be strictly increasing"
+        )
+
+    return scales, normalized_frequencies
+
+
+def scales_to_physical_coordinates(
+    scales: np.ndarray,
+    *,
+    wavelet: str,
+    sampling_period: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Convert wavelet scales back to physical frequency and period."""
+
+    scale_grid = validate_signal_array(
+        scales,
+        name="Wavelet scale grid",
+        require_positive=True,
+    )
+
+    if scale_grid.size < 2:
+        raise ValueError(
+            "Wavelet scale grid must contain at least two values"
+        )
+
+    if np.any(np.diff(scale_grid) <= 0.0):
+        raise ValueError(
+            "Wavelet scale grid must be strictly increasing"
+        )
+
+    sampling = validate_positive_real(
+        sampling_period,
+        name="sampling_period",
+    )
+    wavelet_object = validate_continuous_wavelet(wavelet)
+
+    try:
+        frequencies_hz = (
+            pywt.scale2frequency(
+                wavelet_object,
+                scale_grid,
+            )
+            / sampling
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Could not convert wavelet scales to physical frequencies"
+        ) from error
+
+    frequencies_hz = np.asarray(
+        frequencies_hz,
+        dtype=np.float64,
+    )
+
+    if frequencies_hz.shape != scale_grid.shape:
+        raise RuntimeError(
+            "Scale-to-frequency conversion changed the array shape"
+        )
+
+    if not np.all(np.isfinite(frequencies_hz)):
+        raise RuntimeError(
+            "Reconstructed physical frequencies contain "
+            "NaN or infinite values"
+        )
+
+    if np.any(frequencies_hz <= 0.0):
+        raise RuntimeError(
+            "Reconstructed frequencies must contain only positive values"
+        )
+
+    if np.any(np.diff(frequencies_hz) >= 0.0):
+        raise RuntimeError(
+            "Reconstructed frequencies must be strictly decreasing"
+        )
+
+    periods_seconds = np.asarray(
+        1.0 / frequencies_hz,
+        dtype=np.float64,
+    )
+
+    if not np.all(np.isfinite(periods_seconds)):
+        raise RuntimeError(
+            "Reconstructed physical periods contain "
+            "NaN or infinite values"
+        )
+
+    if np.any(np.diff(periods_seconds) <= 0.0):
+        raise RuntimeError(
+            "Reconstructed periods must be strictly increasing"
+        )
+
+    return frequencies_hz, periods_seconds
+
+
+def generate_physical_scales(
+    *,
+    periods_seconds: np.ndarray,
+    wavelet: str,
+    sampling_period: float,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    dict[str, Any],
+]:
+    """Convert a physical-period grid into validated CWT scales.
+
+    The function performs a complete round trip:
+
+        period -> frequency -> normalized frequency -> scale
+               -> reconstructed frequency -> reconstructed period
+
+    Args:
+        periods_seconds:
+            Requested, strictly increasing physical periods.
+        wavelet:
+            PyWavelets continuous-wavelet name.
+        sampling_period:
+            Frame sampling period in seconds.
+
+    Returns:
+        A tuple containing:
+        - wavelet scales;
+        - reconstructed physical frequencies in Hz;
+        - reconstructed physical periods in seconds;
+        - JSON-compatible conversion summary.
+    """
+
+    requested_periods = validate_requested_periods(
+        periods_seconds
+    )
+    sampling = validate_positive_real(
+        sampling_period,
+        name="sampling_period",
+    )
+
+    requested_frequencies = periods_to_frequencies(
+        requested_periods
+    )
+
+    scales, normalized_frequencies = frequencies_to_scales(
+        requested_frequencies,
+        wavelet=wavelet,
+        sampling_period=sampling,
+    )
+
+    (
+        actual_frequencies,
+        actual_periods,
+    ) = scales_to_physical_coordinates(
+        scales,
+        wavelet=wavelet,
+        sampling_period=sampling,
+    )
+
+    absolute_period_error = np.abs(
+        actual_periods - requested_periods
+    )
+    relative_period_error = (
+        absolute_period_error / requested_periods
+    )
+
+    if not np.allclose(
+        actual_periods,
+        requested_periods,
+        rtol=1e-10,
+        atol=1e-12,
+    ):
+        raise RuntimeError(
+            "Wavelet scale round trip did not preserve "
+            "the requested physical periods"
+        )
+
+    summary: dict[str, Any] = {
+        "wavelet": wavelet,
+        "number_of_scales": int(scales.size),
+        "sampling_period_seconds": sampling,
+        "sampling_frequency_hz": float(1.0 / sampling),
+        "requested_minimum_period_seconds": float(
+            requested_periods[0]
+        ),
+        "requested_maximum_period_seconds": float(
+            requested_periods[-1]
+        ),
+        "actual_minimum_period_seconds": float(
+            actual_periods[0]
+        ),
+        "actual_maximum_period_seconds": float(
+            actual_periods[-1]
+        ),
+        "maximum_frequency_hz": float(
+            actual_frequencies[0]
+        ),
+        "minimum_frequency_hz": float(
+            actual_frequencies[-1]
+        ),
+        "minimum_normalized_frequency": float(
+            np.min(normalized_frequencies)
+        ),
+        "maximum_normalized_frequency": float(
+            np.max(normalized_frequencies)
+        ),
+        "minimum_scale": float(scales[0]),
+        "maximum_scale": float(scales[-1]),
+        "maximum_absolute_period_error_seconds": float(
+            np.max(absolute_period_error)
+        ),
+        "maximum_relative_period_error": float(
+            np.max(relative_period_error)
+        ),
+    }
+
+    return (
+        scales,
+        actual_frequencies,
+        actual_periods,
+        summary,
+    )
 
 
 def main() -> int:

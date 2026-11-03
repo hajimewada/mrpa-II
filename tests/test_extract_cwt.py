@@ -12,21 +12,27 @@ from analysis.f0.extract_cwt import (
     convert_f0_domain,
     default_metadata_path,
     generate_period_grid,
+    generate_physical_scales,
     infer_sampling_period,
     load_core_inputs,
     load_interpolation_metadata,
     load_optional_mask,
     prepare_cwt_signal,
+    periods_to_frequencies,
     resolve_period_range,
     scale_signal,
+    scales_to_physical_coordinates,
     summarize_masks,
     validate_arguments,
     validate_core_arrays,
     validate_interpolation_metadata,
     validate_interpolation_ratio,
     validate_metadata_sampling_period,
+    validate_continuous_wavelet,
     validate_positive_real,
+    validate_requested_periods,
     validate_signal_variation,
+    frequencies_to_scales,
 )
 
 
@@ -1918,3 +1924,287 @@ def test_generate_period_grid_returns_independent_arrays() -> None:
 
     assert np.array_equal(first, second)
     assert not np.shares_memory(first, second)
+
+
+def test_periods_to_frequencies() -> None:
+    periods = np.array(
+        [0.05, 0.10, 0.20, 0.50],
+        dtype=np.float64,
+    )
+
+    frequencies = periods_to_frequencies(periods)
+
+    expected = np.array(
+        [20.0, 10.0, 5.0, 2.0],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_allclose(
+        frequencies,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    assert np.all(np.diff(frequencies) < 0.0)
+    assert not np.shares_memory(frequencies, periods)
+
+
+def test_validate_requested_periods_returns_independent_copy() -> None:
+    periods = np.array(
+        [0.05, 0.10, 0.20],
+        dtype=np.float64,
+    )
+
+    validated = validate_requested_periods(periods)
+
+    assert np.array_equal(validated, periods)
+    assert validated.dtype == np.float64
+    assert not np.shares_memory(validated, periods)
+
+
+@pytest.mark.parametrize(
+    "invalid_periods",
+    [
+        np.array([0.05]),
+        np.array([0.05, 0.05]),
+        np.array([0.10, 0.05]),
+        np.array([0.05, 0.0]),
+        np.array([0.05, -0.1]),
+        np.array([0.05, np.nan]),
+        np.array([0.05, np.inf]),
+        np.ones((2, 2), dtype=np.float64),
+    ],
+)
+def test_validate_requested_periods_rejects_invalid_grid(
+    invalid_periods: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError):
+        validate_requested_periods(invalid_periods)
+
+
+def test_validate_continuous_wavelet_accepts_morl() -> None:
+    wavelet = validate_continuous_wavelet("morl")
+
+    assert wavelet.name == "morl"
+
+
+@pytest.mark.parametrize(
+    "invalid_wavelet",
+    [
+        "",
+        "not-a-wavelet",
+        1,
+        None,
+    ],
+)
+def test_validate_continuous_wavelet_rejects_invalid_name(
+    invalid_wavelet,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="wavelet",
+    ):
+        validate_continuous_wavelet(invalid_wavelet)
+
+
+def test_frequencies_to_scales_morl() -> None:
+    periods = np.geomspace(0.05, 0.5, 16)
+    frequencies = 1.0 / periods
+
+    scales, normalized = frequencies_to_scales(
+        frequencies,
+        wavelet="morl",
+        sampling_period=0.005,
+    )
+
+    assert scales.shape == periods.shape
+    assert normalized.shape == periods.shape
+    assert scales.dtype == np.float64
+    assert normalized.dtype == np.float64
+    assert np.all(scales > 0.0)
+    assert np.all(np.diff(scales) > 0.0)
+
+    np.testing.assert_allclose(
+        normalized,
+        frequencies * 0.005,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_frequencies_to_scales_rejects_nyquist_violation() -> None:
+    frequencies = np.array(
+        [120.0, 100.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Nyquist",
+    ):
+        frequencies_to_scales(
+            frequencies,
+            wavelet="morl",
+            sampling_period=0.005,
+        )
+
+
+def test_scales_to_physical_coordinates() -> None:
+    periods = np.geomspace(0.05, 0.5, 16)
+    frequencies = 1.0 / periods
+
+    scales, _ = frequencies_to_scales(
+        frequencies,
+        wavelet="morl",
+        sampling_period=0.005,
+    )
+
+    actual_frequencies, actual_periods = (
+        scales_to_physical_coordinates(
+            scales,
+            wavelet="morl",
+            sampling_period=0.005,
+        )
+    )
+
+    np.testing.assert_allclose(
+        actual_frequencies,
+        frequencies,
+        rtol=1e-10,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        actual_periods,
+        periods,
+        rtol=1e-10,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize(
+    "spacing",
+    [
+        "log",
+        "linear",
+    ],
+)
+def test_generate_physical_scales_round_trip(
+    spacing: str,
+) -> None:
+    requested_periods = generate_period_grid(
+        minimum_period=0.05,
+        maximum_period=0.5025,
+        number_of_scales=64,
+        spacing=spacing,
+    )
+
+    (
+        scales,
+        frequencies,
+        actual_periods,
+        summary,
+    ) = generate_physical_scales(
+        periods_seconds=requested_periods,
+        wavelet="morl",
+        sampling_period=0.005,
+    )
+
+    assert scales.shape == (64,)
+    assert frequencies.shape == (64,)
+    assert actual_periods.shape == (64,)
+
+    assert np.all(np.diff(scales) > 0.0)
+    assert np.all(np.diff(frequencies) < 0.0)
+    assert np.all(np.diff(actual_periods) > 0.0)
+
+    np.testing.assert_allclose(
+        actual_periods,
+        requested_periods,
+        rtol=1e-10,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        actual_periods,
+        1.0 / frequencies,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    assert summary["wavelet"] == "morl"
+    assert summary["number_of_scales"] == 64
+    assert summary["maximum_relative_period_error"] <= 1e-10
+
+
+def test_generate_physical_scales_summary_is_json_serializable() -> None:
+    requested_periods = np.geomspace(
+        0.05,
+        0.5,
+        num=16,
+        dtype=np.float64,
+    )
+
+    _, _, _, summary = generate_physical_scales(
+        periods_seconds=requested_periods,
+        wavelet="morl",
+        sampling_period=0.005,
+    )
+
+    decoded = json.loads(json.dumps(summary))
+
+    assert decoded["wavelet"] == "morl"
+    assert decoded["number_of_scales"] == 16
+
+
+def test_generate_physical_scales_preserves_requested_periods() -> None:
+    requested_periods = np.geomspace(
+        0.05,
+        0.5,
+        num=16,
+        dtype=np.float64,
+    )
+    original = requested_periods.copy()
+
+    generate_physical_scales(
+        periods_seconds=requested_periods,
+        wavelet="morl",
+        sampling_period=0.005,
+    )
+
+    assert np.array_equal(requested_periods, original)
+
+
+def test_generate_physical_scales_summary_is_complete() -> None:
+    requested_periods = np.geomspace(
+        0.05,
+        0.5,
+        num=16,
+        dtype=np.float64,
+    )
+
+    _, _, _, summary = generate_physical_scales(
+        periods_seconds=requested_periods,
+        wavelet="morl",
+        sampling_period=0.005,
+    )
+
+    expected_keys = {
+        "wavelet",
+        "number_of_scales",
+        "sampling_period_seconds",
+        "sampling_frequency_hz",
+        "requested_minimum_period_seconds",
+        "requested_maximum_period_seconds",
+        "actual_minimum_period_seconds",
+        "actual_maximum_period_seconds",
+        "maximum_frequency_hz",
+        "minimum_frequency_hz",
+        "minimum_normalized_frequency",
+        "maximum_normalized_frequency",
+        "minimum_scale",
+        "maximum_scale",
+        "maximum_absolute_period_error_seconds",
+        "maximum_relative_period_error",
+    }
+
+    assert set(summary) == expected_keys
