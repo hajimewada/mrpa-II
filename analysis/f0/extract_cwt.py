@@ -1227,7 +1227,7 @@ def prepare_cwt_signal(
 
 
 def main() -> int:
-    """Run Milestone 1 input validation."""
+    """Run Milestone 1 validation and Milestone 2 signal preparation."""
 
     parser = build_parser()
     args = parser.parse_args()
@@ -1292,6 +1292,14 @@ def main() -> int:
                 atol=args.time_atol,
             )
 
+        prepared_signal, signal_summary = prepare_cwt_signal(
+            continuous_f0,
+            domain=args.domain,
+            centering=args.centering,
+            scaling=args.scaling,
+            minimum_dynamic_range=args.minimum_dynamic_range,
+        )
+
         duration = float(
             time_axis[-1] - time_axis[0] + sampling_period
         )
@@ -1323,7 +1331,49 @@ def main() -> int:
             f"{mask_summary['masks_are_complementary']}"
         )
         print(f"short input warning: {short_input_warning}")
-        print("CWT computation    : not run in Milestone 1")
+        print()
+        print("Milestone 2 signal preparation: OK")
+        print(
+            f"domain              : "
+            f"{signal_summary['domain']}"
+        )
+        print(
+            f"centering           : "
+            f"{signal_summary['centering']}"
+        )
+        print(
+            f"scaling             : "
+            f"{signal_summary['scaling']}"
+        )
+        print(
+            f"center value        : "
+            f"{signal_summary['center_value']:.12g}"
+        )
+        print(
+            f"scale value         : "
+            f"{signal_summary['scale_value']:.12g}"
+        )
+        print(
+            f"domain range        : "
+            f"{signal_summary['domain_dynamic_range']:.12g}"
+        )
+        print(
+            f"prepared range      : "
+            f"{signal_summary['prepared_dynamic_range']:.12g}"
+        )
+        print(
+            f"prepared mean       : "
+            f"{signal_summary['prepared_signal_mean']:.12g}"
+        )
+        print(
+            f"prepared median     : "
+            f"{signal_summary['prepared_signal_median']:.12g}"
+        )
+        print(
+            f"prepared shape      : "
+            f"{prepared_signal.shape}"
+        )
+        print("CWT computation     : not run in Milestone 2")
 
         return 0
 
