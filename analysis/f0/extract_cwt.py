@@ -1978,7 +1978,7 @@ def generate_physical_scales(
 
 
 def main() -> int:
-    """Run Milestone 1 validation and Milestone 2 signal preparation."""
+    """Run validation, signal preparation, and physical scale assignment."""
 
     parser = build_parser()
     args = parser.parse_args()
@@ -2054,6 +2054,36 @@ def main() -> int:
         duration = float(
             time_axis[-1] - time_axis[0] + sampling_period
         )
+
+        (
+            resolved_minimum_period,
+            resolved_maximum_period,
+            period_range_summary,
+        ) = resolve_period_range(
+            minimum_period=args.minimum_period,
+            maximum_period=args.maximum_period,
+            sampling_period=sampling_period,
+            duration=duration,
+        )
+
+        requested_periods = generate_period_grid(
+            minimum_period=resolved_minimum_period,
+            maximum_period=resolved_maximum_period,
+            number_of_scales=args.number_of_scales,
+            spacing=args.scale_spacing,
+        )
+
+        (
+            scales,
+            frequencies_hz,
+            periods_seconds,
+            scale_summary,
+        ) = generate_physical_scales(
+            periods_seconds=requested_periods,
+            wavelet=args.wavelet,
+            sampling_period=sampling_period,
+        )
+
         short_input_warning = (
             continuous_f0.size < RECOMMENDED_MINIMUM_FRAMES
         )
@@ -2124,7 +2154,60 @@ def main() -> int:
             f"prepared shape      : "
             f"{prepared_signal.shape}"
         )
-        print("CWT computation     : not run in Milestone 2")
+        print()
+        print("Milestone 3 physical scale assignment: OK")
+        print(
+            f"wavelet            : "
+            f"{scale_summary['wavelet']}"
+        )
+        print(
+            f"period spacing      : "
+            f"{args.scale_spacing}"
+        )
+        print(
+            f"number of scales    : "
+            f"{scale_summary['number_of_scales']}"
+        )
+        print(
+            f"maximum automatic   : "
+            f"{period_range_summary['maximum_period_was_automatic']}"
+        )
+        print(
+            f"period range        : "
+            f"{periods_seconds[0]:.12g} to "
+            f"{periods_seconds[-1]:.12g} s"
+        )
+        print(
+            f"frequency range     : "
+            f"{frequencies_hz[-1]:.12g} to "
+            f"{frequencies_hz[0]:.12g} Hz"
+        )
+        print(
+            f"scale range         : "
+            f"{scales[0]:.12g} to "
+            f"{scales[-1]:.12g}"
+        )
+        print(
+            f"minimum period frames: "
+            f"{period_range_summary['minimum_period_frames']:.12g}"
+        )
+        print(
+            f"maximum period frames: "
+            f"{period_range_summary['maximum_period_frames']:.12g}"
+        )
+        print(
+            f"maximum period cycles: "
+            f"{period_range_summary['maximum_cycles_in_signal']:.12g}"
+        )
+        print(
+            f"round-trip abs error: "
+            f"{scale_summary['maximum_absolute_period_error_seconds']:.12g} s"
+        )
+        print(
+            f"round-trip rel error: "
+            f"{scale_summary['maximum_relative_period_error']:.12g}"
+        )
+        print("CWT computation     : not run in Milestone 3")
 
         return 0
 
