@@ -34,6 +34,9 @@ DEFAULT_MAX_INTERPOLATION_RATIO = 1.0
 DEFAULT_TIME_RTOL = 1e-6
 DEFAULT_TIME_ATOL = 1e-9
 DEFAULT_MINIMUM_DYNAMIC_RANGE = 1e-12
+DEFAULT_MAXIMUM_PERIOD_CAP_SECONDS = 2.0
+PERIOD_RANGE_RTOL = 1e-12
+PERIOD_RANGE_ATOL = 1e-12
 
 SUPPORTED_CWT_DOMAINS = ("log-hz", "hz")
 SUPPORTED_CENTERING_METHODS = ("median", "mean", "none")
@@ -1224,6 +1227,207 @@ def prepare_cwt_signal(
     }
 
     return prepared_signal, summary
+
+
+def validate_positive_real(
+    value: object,
+    *,
+    name: str,
+) -> float:
+    """Validate and convert a strictly positive finite real number.
+
+    Accepted values include Python and NumPy integer and floating-point
+    scalar types. Boolean values, strings, null values, non-finite
+    values, zero, and negative values are rejected.
+
+    Args:
+        value:
+            Candidate numerical value.
+        name:
+            Human-readable parameter name used in error messages.
+
+    Returns:
+        The validated value as a Python float.
+
+    Raises:
+        ValueError:
+            If the value is not a finite, strictly positive real number.
+    """
+
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(
+            f"{name} must be a finite positive number"
+        )
+
+    if not isinstance(
+        value,
+        (int, float, np.integer, np.floating),
+    ):
+        raise ValueError(
+            f"{name} must be a finite positive number"
+        )
+
+    converted = float(value)
+
+    if not np.isfinite(converted) or converted <= 0.0:
+        raise ValueError(
+            f"{name} must be a finite positive number"
+        )
+
+    return converted
+
+
+def resolve_period_range(
+    *,
+    minimum_period: float,
+    maximum_period: float | None,
+    sampling_period: float,
+    duration: float,
+    maximum_period_cap: float = (
+        DEFAULT_MAXIMUM_PERIOD_CAP_SECONDS
+    ),
+) -> tuple[float, float, dict[str, Any]]:
+    """Resolve a physically valid CWT period range.
+
+    The minimum period must span at least four sampling frames. When
+    ``maximum_period`` is omitted, the maximum is selected as the
+    smaller of the configured cap and half of the input duration.
+
+    An explicitly requested maximum period is never silently clamped.
+
+    Args:
+        minimum_period:
+            Requested minimum physical period in seconds.
+        maximum_period:
+            Requested maximum period in seconds, or ``None`` for
+            automatic resolution.
+        sampling_period:
+            Frame sampling period in seconds.
+        duration:
+            Total input-signal duration in seconds.
+        maximum_period_cap:
+            Upper cap used only when maximum-period selection is
+            automatic.
+
+    Returns:
+        A tuple containing:
+        - resolved minimum period in seconds;
+        - resolved maximum period in seconds;
+        - a JSON-compatible summary dictionary.
+
+    Raises:
+        ValueError:
+            If an input is invalid or no valid period interval can be
+            constructed.
+    """
+
+    minimum = validate_positive_real(
+        minimum_period,
+        name="minimum_period",
+    )
+    sampling = validate_positive_real(
+        sampling_period,
+        name="sampling_period",
+    )
+    signal_duration = validate_positive_real(
+        duration,
+        name="duration",
+    )
+    period_cap = validate_positive_real(
+        maximum_period_cap,
+        name="maximum_period_cap",
+    )
+
+    sampling_minimum = 4.0 * sampling
+    duration_maximum = signal_duration / 2.0
+
+    minimum_matches_limit = np.isclose(
+        minimum,
+        sampling_minimum,
+        rtol=PERIOD_RANGE_RTOL,
+        atol=PERIOD_RANGE_ATOL,
+    )
+
+    if minimum < sampling_minimum and not minimum_matches_limit:
+        raise ValueError(
+            "minimum period must span at least four frames: "
+            f"requested={minimum:.12g} s, "
+            f"required>={sampling_minimum:.12g} s"
+        )
+
+    # Normalize a boundary value that differs only by floating-point
+    # representation to the exact operational minimum.
+    if minimum_matches_limit:
+        minimum = sampling_minimum
+
+    if maximum_period is None:
+        maximum = min(
+            period_cap,
+            duration_maximum,
+        )
+        maximum_was_automatic = True
+        requested_maximum: float | None = None
+    else:
+        maximum = validate_positive_real(
+            maximum_period,
+            name="maximum_period",
+        )
+        maximum_was_automatic = False
+        requested_maximum = maximum
+
+        maximum_matches_duration_limit = np.isclose(
+            maximum,
+            duration_maximum,
+            rtol=PERIOD_RANGE_RTOL,
+            atol=PERIOD_RANGE_ATOL,
+        )
+
+        if (
+            maximum > duration_maximum
+            and not maximum_matches_duration_limit
+        ):
+            raise ValueError(
+                "maximum period exceeds half of the input duration: "
+                f"requested={maximum:.12g} s, "
+                f"allowed<={duration_maximum:.12g} s"
+            )
+
+        if maximum_matches_duration_limit:
+            maximum = duration_maximum
+
+    if maximum <= minimum or np.isclose(
+        maximum,
+        minimum,
+        rtol=PERIOD_RANGE_RTOL,
+        atol=PERIOD_RANGE_ATOL,
+    ):
+        raise ValueError(
+            "input duration is too short for the requested period range: "
+            f"minimum={minimum:.12g} s, "
+            f"maximum={maximum:.12g} s"
+        )
+
+    minimum_period_frames = minimum / sampling
+    maximum_period_frames = maximum / sampling
+    minimum_cycles_in_signal = signal_duration / minimum
+    maximum_cycles_in_signal = signal_duration / maximum
+
+    summary: dict[str, Any] = {
+        "requested_minimum_period_seconds": float(minimum_period),
+        "requested_maximum_period_seconds": requested_maximum,
+        "sampling_minimum_period_seconds": sampling_minimum,
+        "duration_maximum_period_seconds": duration_maximum,
+        "maximum_period_cap_seconds": period_cap,
+        "resolved_minimum_period_seconds": minimum,
+        "resolved_maximum_period_seconds": maximum,
+        "maximum_period_was_automatic": maximum_was_automatic,
+        "minimum_period_frames": minimum_period_frames,
+        "maximum_period_frames": maximum_period_frames,
+        "minimum_cycles_in_signal": minimum_cycles_in_signal,
+        "maximum_cycles_in_signal": maximum_cycles_in_signal,
+    }
+
+    return minimum, maximum, summary
 
 
 def main() -> int:

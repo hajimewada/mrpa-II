@@ -16,6 +16,7 @@ from analysis.f0.extract_cwt import (
     load_interpolation_metadata,
     load_optional_mask,
     prepare_cwt_signal,
+    resolve_period_range,
     scale_signal,
     summarize_masks,
     validate_arguments,
@@ -23,6 +24,7 @@ from analysis.f0.extract_cwt import (
     validate_interpolation_metadata,
     validate_interpolation_ratio,
     validate_metadata_sampling_period,
+    validate_positive_real,
     validate_signal_variation,
 )
 
@@ -1316,3 +1318,339 @@ def test_prepare_cwt_signal_preserves_input_exactly() -> None:
     prepare_cwt_signal(f0)
 
     assert np.array_equal(f0, original)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        1,
+        0.5,
+        np.int64(2),
+        np.float64(0.25),
+    ],
+)
+def test_validate_positive_real_accepts_numeric_scalars(value) -> None:
+    result = validate_positive_real(
+        value,
+        name="test_value",
+    )
+
+    assert isinstance(result, float)
+    assert result > 0.0
+    assert np.isclose(result, float(value))
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        0,
+        0.0,
+        -1,
+        -0.5,
+        np.nan,
+        np.inf,
+        -np.inf,
+        True,
+        False,
+        np.bool_(True),
+        "0.5",
+        None,
+    ],
+)
+def test_validate_positive_real_rejects_invalid_values(
+    invalid_value,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="finite positive number",
+    ):
+        validate_positive_real(
+            invalid_value,
+            name="test_value",
+        )
+
+
+def test_resolve_period_range_uses_duration_half_by_default() -> None:
+    minimum, maximum, summary = resolve_period_range(
+        minimum_period=0.05,
+        maximum_period=None,
+        sampling_period=0.005,
+        duration=1.005,
+    )
+
+    assert np.isclose(minimum, 0.05)
+    assert np.isclose(maximum, 0.5025)
+
+    assert summary["maximum_period_was_automatic"] is True
+    assert summary["requested_maximum_period_seconds"] is None
+    assert np.isclose(
+        summary["sampling_minimum_period_seconds"],
+        0.02,
+    )
+    assert np.isclose(
+        summary["duration_maximum_period_seconds"],
+        0.5025,
+    )
+    assert np.isclose(
+        summary["minimum_period_frames"],
+        10.0,
+    )
+    assert np.isclose(
+        summary["maximum_period_frames"],
+        100.5,
+    )
+    assert np.isclose(
+        summary["minimum_cycles_in_signal"],
+        20.1,
+    )
+    assert np.isclose(
+        summary["maximum_cycles_in_signal"],
+        2.0,
+    )
+
+
+def test_resolve_period_range_applies_automatic_cap() -> None:
+    minimum, maximum, summary = resolve_period_range(
+        minimum_period=0.05,
+        maximum_period=None,
+        sampling_period=0.005,
+        duration=10.0,
+    )
+
+    assert np.isclose(minimum, 0.05)
+    assert np.isclose(maximum, 2.0)
+    assert summary["maximum_period_was_automatic"] is True
+    assert np.isclose(
+        summary["maximum_period_cap_seconds"],
+        2.0,
+    )
+
+
+def test_resolve_period_range_accepts_explicit_maximum() -> None:
+    minimum, maximum, summary = resolve_period_range(
+        minimum_period=0.05,
+        maximum_period=1.0,
+        sampling_period=0.005,
+        duration=4.0,
+    )
+
+    assert np.isclose(minimum, 0.05)
+    assert np.isclose(maximum, 1.0)
+    assert summary["maximum_period_was_automatic"] is False
+    assert np.isclose(
+        summary["requested_maximum_period_seconds"],
+        1.0,
+    )
+
+
+def test_resolve_period_range_accepts_exact_four_frame_minimum() -> None:
+    minimum, maximum, summary = resolve_period_range(
+        minimum_period=0.020,
+        maximum_period=0.5,
+        sampling_period=0.005,
+        duration=2.0,
+    )
+
+    assert np.isclose(minimum, 0.020)
+    assert np.isclose(maximum, 0.5)
+    assert np.isclose(
+        summary["minimum_period_frames"],
+        4.0,
+    )
+
+
+def test_resolve_period_range_normalizes_close_four_frame_boundary() -> None:
+    sampling_period = 0.005
+    minimum_allowed = 4.0 * sampling_period
+
+    minimum, _, summary = resolve_period_range(
+        minimum_period=minimum_allowed - 1e-14,
+        maximum_period=0.5,
+        sampling_period=sampling_period,
+        duration=2.0,
+    )
+
+    assert minimum == minimum_allowed
+    assert summary["resolved_minimum_period_seconds"] == minimum_allowed
+
+
+def test_resolve_period_range_rejects_less_than_four_frames() -> None:
+    with pytest.raises(
+        ValueError,
+        match="at least four frames",
+    ):
+        resolve_period_range(
+            minimum_period=0.019,
+            maximum_period=0.5,
+            sampling_period=0.005,
+            duration=2.0,
+        )
+
+
+def test_resolve_period_range_rejects_explicit_maximum_above_half_duration() -> None:
+    with pytest.raises(
+        ValueError,
+        match="exceeds half",
+    ):
+        resolve_period_range(
+            minimum_period=0.05,
+            maximum_period=0.8,
+            sampling_period=0.005,
+            duration=1.005,
+        )
+
+
+def test_resolve_period_range_accepts_maximum_at_half_duration() -> None:
+    _, maximum, summary = resolve_period_range(
+        minimum_period=0.05,
+        maximum_period=0.5025,
+        sampling_period=0.005,
+        duration=1.005,
+    )
+
+    assert np.isclose(maximum, 0.5025)
+    assert summary["maximum_period_was_automatic"] is False
+
+
+@pytest.mark.parametrize(
+    ("minimum_period", "maximum_period"),
+    [
+        (0.5, 0.5),
+        (0.6, 0.5),
+    ],
+)
+def test_resolve_period_range_rejects_non_increasing_range(
+    minimum_period: float,
+    maximum_period: float,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="too short for the requested period range",
+    ):
+        resolve_period_range(
+            minimum_period=minimum_period,
+            maximum_period=maximum_period,
+            sampling_period=0.1,
+            duration=2.0,
+        )
+
+
+def test_resolve_period_range_rejects_short_duration_for_automatic_maximum() -> None:
+    with pytest.raises(
+        ValueError,
+        match="too short for the requested period range",
+    ):
+        resolve_period_range(
+            minimum_period=0.05,
+            maximum_period=None,
+            sampling_period=0.005,
+            duration=0.08,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("minimum_period", 0.0),
+        ("minimum_period", np.nan),
+        ("minimum_period", True),
+        ("minimum_period", "0.05"),
+        ("sampling_period", 0.0),
+        ("sampling_period", np.inf),
+        ("sampling_period", False),
+        ("duration", 0.0),
+        ("duration", -1.0),
+        ("duration", "1.0"),
+        ("maximum_period_cap", 0.0),
+        ("maximum_period_cap", np.nan),
+        ("maximum_period_cap", True),
+    ],
+)
+def test_resolve_period_range_rejects_invalid_required_values(
+    field: str,
+    invalid_value,
+) -> None:
+    arguments = {
+        "minimum_period": 0.05,
+        "maximum_period": None,
+        "sampling_period": 0.005,
+        "duration": 1.005,
+        "maximum_period_cap": 2.0,
+    }
+    arguments[field] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match="finite positive number",
+    ):
+        resolve_period_range(**arguments)
+
+
+@pytest.mark.parametrize(
+    "invalid_maximum",
+    [
+        0.0,
+        -1.0,
+        np.nan,
+        np.inf,
+        True,
+        "0.5",
+    ],
+)
+def test_resolve_period_range_rejects_invalid_explicit_maximum(
+    invalid_maximum,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="finite positive number",
+    ):
+        resolve_period_range(
+            minimum_period=0.05,
+            maximum_period=invalid_maximum,
+            sampling_period=0.005,
+            duration=2.0,
+        )
+
+
+def test_resolve_period_range_summary_is_json_serializable() -> None:
+    _, _, summary = resolve_period_range(
+        minimum_period=0.05,
+        maximum_period=None,
+        sampling_period=0.005,
+        duration=1.005,
+    )
+
+    encoded = json.dumps(summary)
+    decoded = json.loads(encoded)
+
+    assert decoded["maximum_period_was_automatic"] is True
+    assert np.isclose(
+        decoded["resolved_maximum_period_seconds"],
+        0.5025,
+    )
+
+
+def test_resolve_period_range_summary_is_complete() -> None:
+    _, _, summary = resolve_period_range(
+        minimum_period=0.05,
+        maximum_period=None,
+        sampling_period=0.005,
+        duration=1.005,
+    )
+
+    expected_keys = {
+        "requested_minimum_period_seconds",
+        "requested_maximum_period_seconds",
+        "sampling_minimum_period_seconds",
+        "duration_maximum_period_seconds",
+        "maximum_period_cap_seconds",
+        "resolved_minimum_period_seconds",
+        "resolved_maximum_period_seconds",
+        "maximum_period_was_automatic",
+        "minimum_period_frames",
+        "maximum_period_frames",
+        "minimum_cycles_in_signal",
+        "maximum_cycles_in_signal",
+    }
+
+    assert set(summary) == expected_keys
