@@ -2031,6 +2031,90 @@ def validate_cwt_signal_and_scales(
 
     return validated_signal, validated_scales
 
+def validate_cwt_configuration(
+    *,
+    wavelet: str,
+    sampling_period: float,
+    method: str,
+    precision: int,
+) -> tuple[
+    pywt.ContinuousWavelet,
+    float,
+    str,
+    int,
+]:
+    """Validate configuration values used for CWT computation.
+
+    Args:
+        wavelet:
+            PyWavelets continuous-wavelet name.
+        sampling_period:
+            Positive, finite sampling period in seconds.
+        method:
+            CWT computation method. Supported values are ``"conv"``
+            and ``"fft"``.
+        precision:
+            Wavelet integration precision. Must be an integer greater
+            than or equal to ``MINIMUM_PRECISION``. Boolean values are
+            rejected explicitly.
+
+    Returns:
+        A tuple containing:
+
+        - the validated PyWavelets continuous-wavelet object;
+        - the validated sampling period in seconds;
+        - the validated computation method;
+        - the validated wavelet precision.
+
+    Raises:
+        TypeError:
+            If ``precision`` is not an integer or is a boolean.
+        ValueError:
+            If any configuration value violates the CWT contract.
+    """
+
+    wavelet_object = validate_continuous_wavelet(wavelet)
+
+    validated_sampling_period = validate_positive_real(
+        sampling_period,
+        name="sampling_period",
+    )
+
+    if not isinstance(method, str):
+        raise ValueError(
+            "CWT method must be one of: conv, fft"
+        )
+
+    validated_method = method.strip()
+
+    if validated_method not in ("conv", "fft"):
+        raise ValueError(
+            "CWT method must be one of: conv, fft"
+        )
+
+    if isinstance(precision, bool) or not isinstance(
+        precision,
+        (int, np.integer),
+    ):
+        raise TypeError(
+            "CWT precision must be an integer and must not be boolean"
+        )
+
+    validated_precision = int(precision)
+
+    if validated_precision < MINIMUM_PRECISION:
+        raise ValueError(
+            "CWT precision must be at least "
+            f"{MINIMUM_PRECISION}; got {validated_precision}"
+        )
+
+    return (
+        wavelet_object,
+        validated_sampling_period,
+        validated_method,
+        validated_precision,
+    )
+
 def main() -> int:
     """Run validation, signal preparation, and physical scale assignment."""
 

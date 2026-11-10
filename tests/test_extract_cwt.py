@@ -8,9 +8,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import pywt
 
 from analysis.f0.extract_cwt import (
     MINIMUM_FRAMES,
+    MINIMUM_PRECISION,
     center_signal,
     convert_f0_domain,
     default_metadata_path,
@@ -33,6 +35,7 @@ from analysis.f0.extract_cwt import (
     validate_metadata_sampling_period,
     validate_continuous_wavelet,
     validate_cwt_signal_and_scales,
+    validate_cwt_configuration,
     validate_positive_real,
     validate_requested_periods,
     validate_signal_variation,
@@ -2224,6 +2227,213 @@ def test_validate_cwt_signal_and_scales_rejects_nonfinite_scales(
         validate_cwt_signal_and_scales(
             signal,
             scales,
+        )
+
+def test_validate_cwt_configuration_accepts_defaults(
+) -> None:
+    (
+        wavelet,
+        sampling_period,
+        method,
+        precision,
+    ) = validate_cwt_configuration(
+        wavelet="morl",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+    )
+
+    assert isinstance(
+        wavelet,
+        pywt.ContinuousWavelet,
+    )
+    assert wavelet.name == "morl"
+    assert sampling_period == pytest.approx(0.005)
+    assert method == "conv"
+    assert precision == 12
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "conv",
+        "fft",
+    ],
+)
+def test_validate_cwt_configuration_accepts_supported_methods(
+    method: str,
+) -> None:
+    _, _, validated_method, _ = validate_cwt_configuration(
+        wavelet="morl",
+        sampling_period=0.005,
+        method=method,
+        precision=MINIMUM_PRECISION,
+    )
+
+    assert validated_method == method
+
+
+def test_validate_cwt_configuration_normalizes_method_whitespace(
+) -> None:
+    _, _, method, _ = validate_cwt_configuration(
+        wavelet="morl",
+        sampling_period=0.005,
+        method="  fft  ",
+        precision=12,
+    )
+
+    assert method == "fft"
+
+
+def test_validate_cwt_configuration_accepts_numpy_integer_precision(
+) -> None:
+    _, _, _, precision = validate_cwt_configuration(
+        wavelet="morl",
+        sampling_period=0.005,
+        method="conv",
+        precision=np.int64(13),
+    )
+
+    assert precision == 13
+    assert isinstance(precision, int)
+
+@pytest.mark.parametrize(
+    "wavelet",
+    [
+        "",
+        "   ",
+        "not-a-wavelet",
+    ],
+)
+def test_validate_cwt_configuration_rejects_invalid_wavelet(
+    wavelet: str,
+) -> None:
+    with pytest.raises(ValueError):
+        validate_cwt_configuration(
+            wavelet=wavelet,
+            sampling_period=0.005,
+            method="conv",
+            precision=12,
+        )
+
+
+@pytest.mark.parametrize(
+    "sampling_period",
+    [
+        0.0,
+        -0.005,
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_validate_cwt_configuration_rejects_invalid_sampling_period(
+    sampling_period: float,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="sampling_period",
+    ):
+        validate_cwt_configuration(
+            wavelet="morl",
+            sampling_period=sampling_period,
+            method="conv",
+            precision=12,
+        )
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "",
+        "auto",
+        "FFT",
+        "invalid",
+    ],
+)
+def test_validate_cwt_configuration_rejects_unsupported_method(
+    method: str,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="must be one of: conv, fft",
+    ):
+        validate_cwt_configuration(
+            wavelet="morl",
+            sampling_period=0.005,
+            method=method,
+            precision=12,
+        )
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        None,
+        1,
+        True,
+    ],
+)
+def test_validate_cwt_configuration_rejects_nonstring_method(
+    method: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="must be one of: conv, fft",
+    ):
+        validate_cwt_configuration(
+            wavelet="morl",
+            sampling_period=0.005,
+            method=method,  # type: ignore[arg-type]
+            precision=12,
+        )
+
+
+@pytest.mark.parametrize(
+    "precision",
+    [
+        True,
+        False,
+        12.0,
+        "12",
+        None,
+    ],
+)
+def test_validate_cwt_configuration_rejects_noninteger_precision(
+    precision: object,
+) -> None:
+    with pytest.raises(
+        TypeError,
+        match="must be an integer and must not be boolean",
+    ):
+        validate_cwt_configuration(
+            wavelet="morl",
+            sampling_period=0.005,
+            method="conv",
+            precision=precision,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    "precision",
+    [
+        -1,
+        0,
+        MINIMUM_PRECISION - 1,
+    ],
+)
+def test_validate_cwt_configuration_rejects_low_precision(
+    precision: int,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="CWT precision must be at least 12",
+    ):
+        validate_cwt_configuration(
+            wavelet="morl",
+            sampling_period=0.005,
+            method="conv",
+            precision=precision,
         )
 
 def test_validate_continuous_wavelet_accepts_morl() -> None:
