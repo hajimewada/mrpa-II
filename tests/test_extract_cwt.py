@@ -32,6 +32,7 @@ from analysis.f0.extract_cwt import (
     validate_interpolation_ratio,
     validate_metadata_sampling_period,
     validate_continuous_wavelet,
+    validate_cwt_signal_and_scales,
     validate_positive_real,
     validate_requested_periods,
     validate_signal_variation,
@@ -1985,6 +1986,245 @@ def test_validate_requested_periods_rejects_invalid_grid(
     with pytest.raises(ValueError):
         validate_requested_periods(invalid_periods)
 
+def test_validate_cwt_signal_and_scales_accepts_valid_inputs(
+) -> None:
+    signal = np.linspace(
+        -1.0,
+        1.0,
+        MINIMUM_FRAMES,
+        dtype=np.float64,
+    )
+    scales = np.asarray(
+        [8.125, 16.25, 32.5],
+        dtype=np.float64,
+    )
+
+    validated_signal, validated_scales = (
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+    )
+
+    np.testing.assert_array_equal(
+        validated_signal,
+        signal,
+    )
+    np.testing.assert_array_equal(
+        validated_scales,
+        scales,
+    )
+
+    assert validated_signal.dtype == np.float64
+    assert validated_scales.dtype == np.float64
+    assert validated_signal is not signal
+    assert validated_scales is not scales
+
+
+def test_validate_cwt_signal_and_scales_preserves_inputs(
+) -> None:
+    signal = np.linspace(
+        -2.0,
+        2.0,
+        MINIMUM_FRAMES,
+        dtype=np.float64,
+    )
+    scales = np.asarray(
+        [8.0, 12.0, 20.0, 32.0],
+        dtype=np.float64,
+    )
+
+    original_signal = signal.copy()
+    original_scales = scales.copy()
+
+    validated_signal, validated_scales = (
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+    )
+
+    validated_signal[0] = 999.0
+    validated_scales[0] = 999.0
+
+    np.testing.assert_array_equal(
+        signal,
+        original_signal,
+    )
+    np.testing.assert_array_equal(
+        scales,
+        original_scales,
+    )
+
+
+def test_validate_cwt_signal_and_scales_rejects_short_signal(
+) -> None:
+    signal = np.ones(
+        MINIMUM_FRAMES - 1,
+        dtype=np.float64,
+    )
+    scales = np.asarray(
+        [8.0, 16.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must contain at least 16 frames",
+    ):
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+
+
+@pytest.mark.parametrize(
+    "signal",
+    [
+        np.asarray(
+            [0.0] * (MINIMUM_FRAMES - 1) + [np.nan],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [0.0] * (MINIMUM_FRAMES - 1) + [np.inf],
+            dtype=np.float64,
+        ),
+    ],
+)
+def test_validate_cwt_signal_and_scales_rejects_nonfinite_signal(
+    signal: np.ndarray,
+) -> None:
+    scales = np.asarray(
+        [8.0, 16.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Prepared CWT signal",
+    ):
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+
+
+def test_validate_cwt_signal_and_scales_rejects_too_few_scales(
+) -> None:
+    signal = np.ones(
+        MINIMUM_FRAMES,
+        dtype=np.float64,
+    )
+    scales = np.asarray(
+        [8.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must contain at least two values",
+    ):
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+
+
+@pytest.mark.parametrize(
+    "scales",
+    [
+        np.asarray(
+            [0.0, 1.0],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [-1.0, 1.0],
+            dtype=np.float64,
+        ),
+    ],
+)
+def test_validate_cwt_signal_and_scales_rejects_nonpositive_scales(
+    scales: np.ndarray,
+) -> None:
+    signal = np.ones(
+        MINIMUM_FRAMES,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="CWT scale array",
+    ):
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+
+
+@pytest.mark.parametrize(
+    "scales",
+    [
+        np.asarray(
+            [8.0, 8.0, 16.0],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [16.0, 8.0, 4.0],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [8.0, 16.0, 12.0],
+            dtype=np.float64,
+        ),
+    ],
+)
+def test_validate_cwt_signal_and_scales_rejects_nonincreasing_scales(
+    scales: np.ndarray,
+) -> None:
+    signal = np.ones(
+        MINIMUM_FRAMES,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must be strictly increasing",
+    ):
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+
+
+@pytest.mark.parametrize(
+    "scales",
+    [
+        np.asarray(
+            [8.0, np.nan],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [8.0, np.inf],
+            dtype=np.float64,
+        ),
+    ],
+)
+def test_validate_cwt_signal_and_scales_rejects_nonfinite_scales(
+    scales: np.ndarray,
+) -> None:
+    signal = np.ones(
+        MINIMUM_FRAMES,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="CWT scale array",
+    ):
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
 
 def test_validate_continuous_wavelet_accepts_morl() -> None:
     wavelet = validate_continuous_wavelet("morl")

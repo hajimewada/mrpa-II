@@ -1976,6 +1976,60 @@ def generate_physical_scales(
         summary,
     )
 
+def validate_cwt_signal_and_scales(
+    signal: np.ndarray,
+    scales: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Validate the prepared signal and scales used for CWT computation.
+
+    Args:
+        signal:
+            One-dimensional, finite prepared CWT signal containing at
+            least ``MINIMUM_FRAMES`` values.
+        scales:
+            One-dimensional, finite, positive, strictly increasing
+            physical wavelet scales containing at least two values.
+
+    Returns:
+        A tuple containing independent float64 copies of:
+
+        - the validated CWT signal;
+        - the validated physical wavelet scales.
+
+    Raises:
+        ValueError:
+            If either input violates the CWT computation contract.
+    """
+
+    validated_signal = validate_signal_array(
+        signal,
+        name="Prepared CWT signal",
+        require_positive=False,
+    )
+
+    if validated_signal.size < MINIMUM_FRAMES:
+        raise ValueError(
+            "Prepared CWT signal must contain at least "
+            f"{MINIMUM_FRAMES} frames; got {validated_signal.size}"
+        )
+
+    validated_scales = validate_signal_array(
+        scales,
+        name="CWT scale array",
+        require_positive=True,
+    )
+
+    if validated_scales.size < 2:
+        raise ValueError(
+            "CWT scale array must contain at least two values"
+        )
+
+    if np.any(np.diff(validated_scales) <= 0.0):
+        raise ValueError(
+            "CWT scale array must be strictly increasing"
+        )
+
+    return validated_signal, validated_scales
 
 def main() -> int:
     """Run validation, signal preparation, and physical scale assignment."""
