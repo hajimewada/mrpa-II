@@ -39,6 +39,7 @@ from analysis.f0.extract_cwt import (
     validate_positive_real,
     validate_requested_periods,
     validate_signal_variation,
+    compute_cwt,
     frequencies_to_scales,
 )
 
@@ -2435,6 +2436,178 @@ def test_validate_cwt_configuration_rejects_low_precision(
             method="conv",
             precision=precision,
         )
+
+def test_compute_cwt_returns_expected_shapes():
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            8.0 * np.pi,
+            256,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        33.0,
+        dtype=np.float64,
+    )
+
+    wavelet, sampling_period, method, precision = (
+        validate_cwt_configuration(
+            wavelet="mexh",
+            sampling_period=0.005,
+            method="conv",
+            precision=12,
+        )
+    )
+
+    coefficients, frequencies = compute_cwt(
+        signal,
+        scales,
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    assert coefficients.shape == (
+        scales.size,
+        signal.size,
+    )
+
+    assert frequencies.shape == (
+        scales.size,
+    )
+
+def test_compute_cwt_returns_finite_outputs():
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            8.0 * np.pi,
+            256,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        16.0,
+        dtype=np.float64,
+    )
+
+    wavelet, sampling_period, method, precision = (
+        validate_cwt_configuration(
+            wavelet="mexh",
+            sampling_period=0.01,
+            method="conv",
+            precision=12,
+        )
+    )
+
+    coefficients, frequencies = compute_cwt(
+        signal,
+        scales,
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    assert np.all(np.isfinite(coefficients))
+    assert np.all(np.isfinite(frequencies))
+
+def test_compute_cwt_frequency_alignment():
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            4.0 * np.pi,
+            128,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        17.0,
+        dtype=np.float64,
+    )
+
+    wavelet, sampling_period, method, precision = (
+        validate_cwt_configuration(
+            wavelet="mexh",
+            sampling_period=0.01,
+            method="conv",
+            precision=12,
+        )
+    )
+
+    _, frequencies = compute_cwt(
+        signal,
+        scales,
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    expected = (
+        pywt.scale2frequency(
+            wavelet,
+            scales,
+        )
+        / sampling_period
+    )
+
+    np.testing.assert_allclose(
+        frequencies,
+        expected,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+@pytest.mark.parametrize(
+    "method",
+    ["conv", "fft"],
+)
+def test_compute_cwt_supports_both_methods(
+    method,
+):
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            6.0 * np.pi,
+            256,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        33.0,
+        dtype=np.float64,
+    )
+
+    wavelet, sampling_period, method, precision = (
+        validate_cwt_configuration(
+            wavelet="mexh",
+            sampling_period=0.005,
+            method=method,
+            precision=12,
+        )
+    )
+
+    coefficients, frequencies = compute_cwt(
+        signal,
+        scales,
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    assert coefficients.shape == (
+        scales.size,
+        signal.size,
+    )
+
+    assert frequencies.size == scales.size
 
 def test_validate_continuous_wavelet_accepts_morl() -> None:
     wavelet = validate_continuous_wavelet("morl")

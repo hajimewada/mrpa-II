@@ -2115,6 +2115,105 @@ def validate_cwt_configuration(
         validated_precision,
     )
 
+def compute_cwt(
+    signal: np.ndarray,
+    scales: np.ndarray,
+    *,
+    wavelet: pywt.ContinuousWavelet,
+    sampling_period: float,
+    method: str,
+    precision: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute continuous wavelet transform coefficients.
+
+    Args:
+        signal:
+            Validated prepared CWT signal.
+        scales:
+            Validated physical wavelet scales.
+        wavelet:
+            Validated PyWavelets continuous-wavelet object.
+        sampling_period:
+            Validated sampling period in seconds.
+        method:
+            Validated CWT computation method.
+        precision:
+            Validated wavelet precision.
+
+    Returns:
+        A tuple containing:
+
+        - CWT coefficient matrix with shape
+          ``(n_scales, n_frames)``;
+        - frequency array aligned to ``scales``.
+
+    Raises:
+        RuntimeError:
+            If PyWavelets returns an unexpected result.
+    """
+
+    coefficients, frequencies = pywt.cwt(
+        data=signal,
+        scales=scales,
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    coefficients = np.asarray(coefficients)
+
+    expected_shape = (
+        scales.size,
+        signal.size,
+    )
+
+    if coefficients.shape != expected_shape:
+        raise RuntimeError(
+            "Unexpected CWT coefficient shape; "
+            f"expected {expected_shape}, "
+            f"got {coefficients.shape}"
+        )
+
+    frequencies = np.asarray(
+        frequencies,
+        dtype=np.float64,
+    )
+
+    if frequencies.shape != (scales.size,):
+        raise RuntimeError(
+            "Unexpected CWT frequency shape; "
+            f"expected {(scales.size,)}, "
+            f"got {frequencies.shape}"
+        )
+
+    if not np.all(np.isfinite(coefficients)):
+        raise RuntimeError(
+            "CWT coefficients contain non-finite values"
+        )
+
+    if not np.all(np.isfinite(frequencies)):
+        raise RuntimeError(
+            "CWT frequencies contain non-finite values"
+        )
+
+    expected_frequencies = pywt.scale2frequency(
+        wavelet,
+        scales,
+    ) / sampling_period
+
+    if not np.allclose(
+        frequencies,
+        expected_frequencies,
+        rtol=1e-12,
+        atol=1e-12,
+    ):
+        raise RuntimeError(
+            "CWT frequencies are not aligned with scales"
+        )
+
+    return coefficients, frequencies
+
 def main() -> int:
     """Run validation, signal preparation, and physical scale assignment."""
 
