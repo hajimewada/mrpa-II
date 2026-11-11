@@ -2775,6 +2775,7 @@ def extract_cwt(
         summary,
     )
 
+
 def main() -> int:
     """Run validation, signal preparation, and physical scale assignment."""
 
@@ -2895,6 +2896,27 @@ def main() -> int:
             precision=12,
         )
 
+        metadata = build_cwt_metadata(
+            wavelet=args.wavelet,
+            sampling_period=sampling_period,
+            method="conv",
+            precision=MINIMUM_PRECISION,
+            signal_summary=signal_summary,
+            scale_summary=scale_summary,
+            cwt_summary=cwt_summary,
+        )
+
+        metadata = validate_cwt_metadata(
+            metadata,
+        )
+
+        save_cwt_outputs(
+            output_path=Path(args.output),
+            metadata_path=metadata_output,
+            coefficients=coefficients,
+            frequencies=cwt_frequencies,
+            metadata=metadata,
+)
         short_input_warning = (
             continuous_f0.size < RECOMMENDED_MINIMUM_FRAMES
         )

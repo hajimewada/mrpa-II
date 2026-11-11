@@ -3668,6 +3668,117 @@ def test_extract_cwt_cli_runs_cwt_pipeline(
     assert "cwt frames" in result.stdout
     assert "cwt frequency range" in result.stdout
 
+def test_extract_cwt_cli_creates_output_archive(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+
+    f0_path, time_path = create_cli_cwt_inputs(
+        tmp_path,
+    )
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+
+    assert result.returncode == 0
+    assert output_path.exists()
+
+def test_extract_cwt_cli_creates_metadata_file(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+    metadata_path = (
+        tmp_path / "cwt_metadata.json"
+    )
+
+    f0_path, time_path = create_cli_cwt_inputs(
+        tmp_path,
+    )
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+        extra_arguments=[
+            "--metadata-output",
+            str(metadata_path),
+        ],
+    )
+
+    assert result.returncode == 0
+    assert metadata_path.exists()
+
+def test_extract_cwt_cli_persists_cwt_arrays(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+
+    f0_path, time_path = create_cli_cwt_inputs(
+        tmp_path,
+    )
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+
+    assert result.returncode == 0
+
+    data = np.load(output_path)
+
+    assert "coefficients" in data
+    assert "frequencies" in data
+
+    assert data["coefficients"].ndim == 2
+    assert data["frequencies"].ndim == 1
+
+    assert (
+        data["coefficients"].shape[0]
+        == data["frequencies"].size
+    )
+
+def test_extract_cwt_cli_persists_metadata(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+    metadata_path = (
+        tmp_path / "cwt_metadata.json"
+    )
+
+    f0_path, time_path = create_cli_cwt_inputs(
+        tmp_path,
+    )
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+        extra_arguments=[
+            "--metadata-output",
+            str(metadata_path),
+        ],
+    )
+
+    assert result.returncode == 0
+
+    metadata = json.loads(
+        metadata_path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    assert metadata["format_version"] == 1
+
+    assert "cwt_configuration" in metadata
+    assert "signal_summary" in metadata
+    assert "scale_summary" in metadata
+    assert "cwt_summary" in metadata
+
+
 @pytest.mark.parametrize(
     ("extra_arguments", "expected_message"),
     [
