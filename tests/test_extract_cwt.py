@@ -14,6 +14,7 @@ import pywt
 from analysis.f0.extract_cwt import (
     MINIMUM_FRAMES,
     MINIMUM_PRECISION,
+    build_cwt_metadata,
     center_signal,
     convert_f0_domain,
     default_metadata_path,
@@ -27,6 +28,7 @@ from analysis.f0.extract_cwt import (
     prepare_cwt_signal,
     periods_to_frequencies,
     resolve_period_range,
+    save_cwt_outputs,
     scale_signal,
     scales_to_physical_coordinates,
     summarize_cwt_result,
@@ -41,6 +43,7 @@ from analysis.f0.extract_cwt import (
     validate_continuous_wavelet,
     validate_cwt_signal_and_scales,
     validate_cwt_configuration,
+    validate_cwt_metadata,
     validate_positive_real,
     validate_requested_periods,
     validate_signal_variation,
@@ -3087,6 +3090,382 @@ def test_summarize_cwt_result_supports_complex_coefficients():
     assert summary["coefficient_max"] == pytest.approx(
         5.0
     )
+
+def _build_signal_summary():
+    return {
+        "domain": "log",
+        "centering": "mean",
+        "scaling": "zscore",
+        "center_value": 0.0,
+        "scale_value": 1.0,
+        "domain_dynamic_range": 1.0,
+        "prepared_dynamic_range": 1.0,
+        "prepared_signal_mean": 0.0,
+        "prepared_signal_median": 0.0,
+    }
+
+
+def _build_scale_summary():
+    return {
+        "wavelet": "mexh",
+        "number_of_scales": 64,
+        "minimum_period_seconds": 0.05,
+        "maximum_period_seconds": 0.5,
+        "minimum_frequency_hz": 2.0,
+        "maximum_frequency_hz": 20.0,
+        "minimum_scale": 1.0,
+        "maximum_scale": 10.0,
+        "maximum_absolute_period_error_seconds": 0.0,
+        "maximum_relative_period_error": 0.0,
+    }
+
+
+def _build_cwt_summary():
+    return {
+        "n_scales": 64,
+        "n_frames": 201,
+        "frequency_min_hz": 2.0,
+        "frequency_max_hz": 20.0,
+        "coefficient_dtype": "float64",
+        "coefficient_min": 0.0,
+        "coefficient_max": 1.0,
+        "coefficient_mean_abs": 0.5,
+    }
+
+def test_validate_cwt_metadata_accepts_valid_metadata():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    validated = validate_cwt_metadata(
+        metadata,
+    )
+
+    assert validated is metadata
+
+def test_validate_cwt_metadata_rejects_bad_format_version():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    metadata["format_version"] = 2
+
+    with pytest.raises(
+        ValueError,
+        match="format version",
+    ):
+        validate_cwt_metadata(
+            metadata,
+        )
+
+def test_validate_cwt_metadata_rejects_nonpositive_sampling_period():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    metadata["cwt_configuration"][
+        "sampling_period"
+    ] = 0.0
+
+    with pytest.raises(
+        ValueError,
+        match="sampling_period",
+    ):
+        validate_cwt_metadata(
+            metadata,
+        )
+
+def test_validate_cwt_metadata_rejects_invalid_method():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    metadata["cwt_configuration"][
+        "method"
+    ] = "invalid"
+
+    with pytest.raises(
+        ValueError,
+        match="method",
+    ):
+        validate_cwt_metadata(
+            metadata,
+        )
+
+def test_validate_cwt_metadata_rejects_scale_count_mismatch():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    metadata["cwt_summary"][
+        "n_scales"
+    ] = 999
+
+    with pytest.raises(
+        ValueError,
+        match="scale counts",
+    ):
+        validate_cwt_metadata(
+            metadata,
+        )
+
+
+def test_build_cwt_metadata_returns_expected_schema():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary={
+            "domain": "log",
+            "centering": "mean",
+            "scaling": "zscore",
+            "center_value": 0.0,
+            "scale_value": 1.0,
+            "domain_dynamic_range": 1.0,
+            "prepared_dynamic_range": 1.0,
+            "prepared_signal_mean": 0.0,
+            "prepared_signal_median": 0.0,
+        },
+        scale_summary={
+            "wavelet": "mexh",
+            "number_of_scales": 64,
+            "minimum_period_seconds": 0.05,
+            "maximum_period_seconds": 0.5,
+            "minimum_frequency_hz": 2.0,
+            "maximum_frequency_hz": 20.0,
+            "minimum_scale": 1.0,
+            "maximum_scale": 10.0,
+            "maximum_absolute_period_error_seconds": 0.0,
+            "maximum_relative_period_error": 0.0,
+        },
+        cwt_summary={
+            "n_scales": 64,
+            "n_frames": 201,
+            "frequency_min_hz": 2.0,
+            "frequency_max_hz": 20.0,
+            "coefficient_dtype": "float64",
+            "coefficient_min": 0.0,
+            "coefficient_max": 1.0,
+            "coefficient_mean_abs": 0.5,
+        },
+    )
+
+    assert set(metadata) == {
+        "format_version",
+        "cwt_configuration",
+        "signal_summary",
+        "scale_summary",
+        "cwt_summary",
+    }
+
+    assert metadata["format_version"] == 1
+
+def test_build_cwt_metadata_preserves_configuration():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    configuration = metadata[
+        "cwt_configuration"
+    ]
+
+    assert configuration["wavelet"] == "mexh"
+    assert configuration["method"] == "conv"
+    assert configuration["precision"] == 12
+
+def test_build_cwt_metadata_computes_sampling_frequency():
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    assert metadata[
+        "cwt_configuration"
+    ][
+        "sampling_frequency"
+    ] == pytest.approx(
+        200.0
+    )
+
+def test_save_cwt_outputs_creates_files(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+    metadata_path = tmp_path / "metadata.json"
+
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    save_cwt_outputs(
+        output_path=output_path,
+        metadata_path=metadata_path,
+        coefficients=np.ones((2, 3)),
+        frequencies=np.array([2.0, 1.0]),
+        metadata=metadata,
+    )
+
+    assert output_path.exists()
+    assert metadata_path.exists()
+
+def test_save_cwt_outputs_persists_arrays(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+    metadata_path = tmp_path / "metadata.json"
+
+    coefficients = np.arange(
+        6,
+        dtype=np.float64,
+    ).reshape(2, 3)
+
+    frequencies = np.array(
+        [2.0, 1.0],
+        dtype=np.float64,
+    )
+
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    save_cwt_outputs(
+        output_path=output_path,
+        metadata_path=metadata_path,
+        coefficients=coefficients,
+        frequencies=frequencies,
+        metadata=metadata,
+    )
+
+    data = np.load(output_path)
+
+    np.testing.assert_array_equal(
+        data["coefficients"],
+        coefficients,
+    )
+
+    np.testing.assert_array_equal(
+        data["frequencies"],
+        frequencies,
+    )
+
+def test_save_cwt_outputs_persists_metadata(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+    metadata_path = tmp_path / "metadata.json"
+
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    save_cwt_outputs(
+        output_path=output_path,
+        metadata_path=metadata_path,
+        coefficients=np.ones((2, 3)),
+        frequencies=np.array([2.0, 1.0]),
+        metadata=metadata,
+    )
+
+    stored = json.loads(
+        metadata_path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    assert stored["format_version"] == 1
+
+    assert (
+        stored["cwt_configuration"]["wavelet"]
+        == "mexh"
+    )
+
+def test_save_cwt_outputs_rejects_invalid_metadata(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+    metadata_path = tmp_path / "metadata.json"
+
+    metadata = build_cwt_metadata(
+        wavelet="mexh",
+        sampling_period=0.005,
+        method="conv",
+        precision=12,
+        signal_summary=_build_signal_summary(),
+        scale_summary=_build_scale_summary(),
+        cwt_summary=_build_cwt_summary(),
+    )
+
+    metadata["format_version"] = 999
+
+    with pytest.raises(ValueError):
+        save_cwt_outputs(
+            output_path=output_path,
+            metadata_path=metadata_path,
+            coefficients=np.ones((2, 3)),
+            frequencies=np.array([2.0, 1.0]),
+            metadata=metadata,
+        )
+
 
 def test_extract_cwt_returns_valid_result():
     signal = np.sin(

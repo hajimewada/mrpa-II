@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate inputs for the MRPA-II Continuous Wavelet Transform pipeline.
+"""Compute Continuous Wavelet Transform features for MRPA-II.
 
 Milestone 1 implements:
 
@@ -10,8 +10,34 @@ Milestone 1 implements:
 5. optional mask loading and validation;
 6. interpolation-metadata loading and consistency validation.
 
-CWT signal preparation, physical-scale generation, transform computation,
-and output generation are implemented in later milestones.
+Milestone 2 implements:
+
+1. F0-domain conversion;
+2. signal centering;
+3. signal scaling;
+4. dynamic-range validation;
+5. prepared CWT-signal generation.
+
+Milestone 3 implements:
+
+1. period-range resolution;
+2. period-grid generation;
+3. wavelet-frequency conversion;
+4. physical-scale generation;
+5. scale-assignment validation.
+
+Milestone 4 implements:
+
+1. CWT input validation;
+2. CWT configuration validation;
+3. continuous wavelet transform computation;
+4. CWT output validation;
+5. CWT-result summarization;
+6. integrated CWT extraction pipeline;
+7. CLI integration and acceptance testing.
+
+Output persistence and metadata serialization are implemented
+in later milestones.
 """
 
 from __future__ import annotations
@@ -20,12 +46,79 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import pywt
 
+class CWTConfigurationMetadata(TypedDict):
+    wavelet: str
+    sampling_period: float
+    sampling_frequency: float
+    method: str
+    precision: int
 
+
+class SignalSummaryMetadata(TypedDict):
+    domain: str
+    centering: str
+    scaling: str
+
+    center_value: float
+    scale_value: float
+
+    domain_dynamic_range: float
+    prepared_dynamic_range: float
+
+    prepared_signal_mean: float
+    prepared_signal_median: float
+
+
+class ScaleSummaryMetadata(TypedDict):
+    wavelet: str
+
+    number_of_scales: int
+
+    minimum_period_seconds: float
+    maximum_period_seconds: float
+
+    minimum_frequency_hz: float
+    maximum_frequency_hz: float
+
+    minimum_scale: float
+    maximum_scale: float
+
+    maximum_absolute_period_error_seconds: float
+    maximum_relative_period_error: float
+
+
+class CWTSummaryMetadata(TypedDict):
+    n_scales: int
+    n_frames: int
+
+    frequency_min_hz: float
+    frequency_max_hz: float
+
+    coefficient_dtype: str
+
+    coefficient_min: float
+    coefficient_max: float
+
+    coefficient_mean_abs: float
+
+
+class CWTMetadata(TypedDict):
+    format_version: int
+
+    cwt_configuration: CWTConfigurationMetadata
+
+    signal_summary: SignalSummaryMetadata
+
+    scale_summary: ScaleSummaryMetadata
+
+    cwt_summary: CWTSummaryMetadata
+
+# Constants    
 MINIMUM_FRAMES = 16
 RECOMMENDED_MINIMUM_FRAMES = 128
 MINIMUM_PRECISION = 12
@@ -2382,6 +2475,212 @@ def summarize_cwt_result(
             np.mean(magnitude)
         ),
     }
+
+def build_cwt_metadata(
+    *,
+    wavelet: str,
+    sampling_period: float,
+    method: str,
+    precision: int,
+    signal_summary: SignalSummaryMetadata,
+    scale_summary: ScaleSummaryMetadata,
+    cwt_summary: CWTSummaryMetadata,
+) -> CWTMetadata:
+    """Build persisted metadata for a CWT extraction result.
+
+    Args:
+        wavelet:
+            Continuous-wavelet name.
+
+        sampling_period:
+            Sampling period in seconds.
+
+        method:
+            CWT computation method.
+
+        precision:
+            CWT integration precision.
+
+        signal_summary:
+            Prepared-signal summary.
+
+        scale_summary:
+            Physical-scale summary.
+
+        cwt_summary:
+            CWT-result summary.
+
+    Returns:
+        Fully assembled metadata structure suitable for
+        JSON serialization.
+    """
+
+    return {
+        "format_version": 1,
+        "cwt_configuration": {
+            "wavelet": wavelet,
+            "sampling_period": float(
+                sampling_period
+            ),
+            "sampling_frequency": float(
+                1.0 / sampling_period
+            ),
+            "method": method,
+            "precision": int(
+                precision
+            ),
+        },
+        "signal_summary": signal_summary,
+        "scale_summary": scale_summary,
+        "cwt_summary": cwt_summary,
+    }
+
+def validate_cwt_metadata(
+    metadata: CWTMetadata,
+) -> CWTMetadata:
+    """Validate persisted CWT metadata."""
+
+    if metadata["format_version"] != 1:
+        raise ValueError(
+            "Unsupported metadata format version"
+        )
+
+    configuration = metadata["cwt_configuration"]
+    signal_summary = metadata["signal_summary"]
+    scale_summary = metadata["scale_summary"]
+    cwt_summary = metadata["cwt_summary"]
+
+    sampling_period = float(
+        configuration["sampling_period"]
+    )
+    sampling_frequency = float(
+        configuration["sampling_frequency"]
+    )
+
+    if not np.isfinite(sampling_period) or sampling_period <= 0.0:
+        raise ValueError(
+            "sampling_period must be positive and finite"
+        )
+
+    if (
+        not np.isfinite(sampling_frequency)
+        or sampling_frequency <= 0.0
+    ):
+        raise ValueError(
+            "sampling_frequency must be positive and finite"
+        )
+
+    expected_frequency = 1.0 / sampling_period
+
+    if not np.isclose(
+        sampling_frequency,
+        expected_frequency,
+        rtol=1e-12,
+        atol=1e-12,
+    ):
+        raise ValueError(
+            "sampling_frequency is inconsistent with "
+            "sampling_period"
+        )
+
+    if configuration["method"] not in {
+        "conv",
+        "fft",
+    }:
+        raise ValueError(
+            "Unsupported CWT method"
+        )
+
+    if int(configuration["precision"]) < MINIMUM_PRECISION:
+        raise ValueError(
+            "precision is below the supported minimum"
+        )
+
+    if (
+        scale_summary["number_of_scales"]
+        <= 0
+    ):
+        raise ValueError(
+            "number_of_scales must be positive"
+        )
+
+    if (
+        cwt_summary["n_scales"]
+        <= 0
+    ):
+        raise ValueError(
+            "n_scales must be positive"
+        )
+
+    if (
+        cwt_summary["n_frames"]
+        <= 0
+    ):
+        raise ValueError(
+            "n_frames must be positive"
+        )
+
+    if (
+        scale_summary["number_of_scales"]
+        != cwt_summary["n_scales"]
+    ):
+        raise ValueError(
+            "Scale-summary and CWT-summary scale counts "
+            "are inconsistent"
+        )
+
+    if (
+        scale_summary["wavelet"]
+        != configuration["wavelet"]
+    ):
+        raise ValueError(
+            "Wavelet names are inconsistent"
+        )
+
+    return metadata
+
+def save_cwt_outputs(
+    *,
+    output_path: Path,
+    metadata_path: Path,
+    coefficients: np.ndarray,
+    frequencies: np.ndarray,
+    metadata: CWTMetadata,
+) -> None:
+    """Save validated CWT outputs and metadata."""
+
+    validate_cwt_metadata(
+        metadata,
+    )
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    metadata_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    np.savez_compressed(
+        output_path,
+        coefficients=coefficients,
+        frequencies=frequencies,
+    )
+
+    with metadata_path.open(
+        "w",
+        encoding="utf-8",
+    ) as stream:
+        json.dump(
+            metadata,
+            stream,
+            indent=2,
+            sort_keys=True,
+        )
+
+        stream.write("\n")
 
 def extract_cwt(
     signal: np.ndarray,
