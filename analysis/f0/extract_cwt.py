@@ -2583,6 +2583,19 @@ def main() -> int:
             sampling_period=sampling_period,
         )
 
+        (
+            coefficients,
+            cwt_frequencies,
+            cwt_summary,
+        ) = extract_cwt(
+            signal=prepared_signal,
+            scales=scales,
+            wavelet=args.wavelet,
+            sampling_period=sampling_period,
+            method="conv",
+            precision=12,
+        )
+
         short_input_warning = (
             continuous_f0.size < RECOMMENDED_MINIMUM_FRAMES
         )
@@ -2706,7 +2719,29 @@ def main() -> int:
             f"round-trip rel error: "
             f"{scale_summary['maximum_relative_period_error']:.12g}"
         )
-        print("CWT computation     : not run in Milestone 3")
+        print()
+        print("Milestone 4 CWT extraction: OK")
+
+        print(
+            f"cwt scales         : "
+            f"{cwt_summary['n_scales']}"
+        )
+
+        print(
+            f"cwt frames         : "
+            f"{cwt_summary['n_frames']}"
+        )
+
+        print(
+            f"cwt dtype          : "
+            f"{cwt_summary['coefficient_dtype']}"
+        )
+
+        print(
+            f"cwt frequency range: "
+            f"{cwt_summary['frequency_min_hz']:.12g} to "
+            f"{cwt_summary['frequency_max_hz']:.12g} Hz"
+        )
 
         return 0
 

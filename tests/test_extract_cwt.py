@@ -2891,39 +2891,39 @@ def test_generate_physical_scales_round_trip(
 
     (
         scales,
-        frequencies,
-        actual_periods,
-        summary,
+        frequencies_hz,
+        periods_seconds,
+        scale_summary,
     ) = generate_physical_scales(
         periods_seconds=requested_periods,
-        wavelet="morl",
+        wavelet="mexh",
         sampling_period=0.005,
     )
 
     assert scales.shape == (64,)
-    assert frequencies.shape == (64,)
-    assert actual_periods.shape == (64,)
+    assert frequencies_hz.shape == (64,)
+    assert periods_seconds.shape == (64,)
 
-    assert np.all(np.diff(scales) > 0.0)
-    assert np.all(np.diff(frequencies) < 0.0)
-    assert np.all(np.diff(actual_periods) > 0.0)
+    assert np.all(np.diff(frequencies_hz) < 0.0)
+    assert np.all(np.diff(periods_seconds) > 0.0)
 
     np.testing.assert_allclose(
-        actual_periods,
+        periods_seconds,
         requested_periods,
         rtol=1e-10,
         atol=1e-12,
     )
+
     np.testing.assert_allclose(
-        actual_periods,
-        1.0 / frequencies,
+        periods_seconds,
+        1.0 / frequencies_hz,
         rtol=1e-12,
         atol=1e-12,
     )
 
-    assert summary["wavelet"] == "morl"
-    assert summary["number_of_scales"] == 64
-    assert summary["maximum_relative_period_error"] <= 1e-10
+    assert scale_summary["wavelet"] == "mexh"
+    assert scale_summary["number_of_scales"] == 64
+    assert scale_summary["maximum_relative_period_error"] <= 1e-10
 
 
 def test_generate_physical_scales_summary_is_json_serializable() -> None:
