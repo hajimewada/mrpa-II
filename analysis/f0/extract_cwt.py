@@ -2214,6 +2214,7 @@ def compute_cwt(
 
     return coefficients, frequencies
 
+
 def validate_cwt_result(
     coefficients: np.ndarray,
     frequencies: np.ndarray,
@@ -2339,6 +2340,141 @@ def validate_cwt_result(
 
     return coefficient_array, frequency_array
 
+def summarize_cwt_result(
+    coefficients: np.ndarray,
+    frequencies: np.ndarray,
+) -> dict[str, object]:
+    """Generate summary metadata for a validated CWT result.
+
+    Args:
+        coefficients:
+            Validated CWT coefficient matrix.
+
+        frequencies:
+            Validated CWT frequency array.
+
+    Returns:
+        Dictionary containing summary information suitable for
+        metadata serialization and acceptance testing.
+    """
+
+    magnitude = np.abs(coefficients)
+
+    return {
+        "n_scales": int(coefficients.shape[0]),
+        "n_frames": int(coefficients.shape[1]),
+        "frequency_min_hz": float(
+            np.min(frequencies)
+        ),
+        "frequency_max_hz": float(
+            np.max(frequencies)
+        ),
+        "coefficient_dtype": str(
+            coefficients.dtype
+        ),
+        "coefficient_min": float(
+            np.min(magnitude)
+        ),
+        "coefficient_max": float(
+            np.max(magnitude)
+        ),
+        "coefficient_mean_abs": float(
+            np.mean(magnitude)
+        ),
+    }
+
+def extract_cwt(
+    signal: np.ndarray,
+    scales: np.ndarray,
+    *,
+    wavelet: str,
+    sampling_period: float,
+    method: str,
+    precision: int,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    dict[str, object],
+]:
+    """Extract validated CWT coefficients and summary metadata.
+
+    Args:
+        signal:
+            Prepared CWT signal.
+
+        scales:
+            Physical wavelet scales.
+
+        wavelet:
+            PyWavelets continuous-wavelet name.
+
+        sampling_period:
+            Sampling period in seconds.
+
+        method:
+            CWT computation method.
+
+        precision:
+            Wavelet integration precision.
+
+    Returns:
+        A tuple containing:
+
+        - validated CWT coefficient matrix;
+        - validated CWT frequency array;
+        - summary metadata dictionary.
+
+    Raises:
+        ValueError:
+            If the signal, scales, configuration, or result violates
+            the CWT contract.
+    """
+
+    validated_signal, validated_scales = (
+        validate_cwt_signal_and_scales(
+            signal,
+            scales,
+        )
+    )
+
+    (
+        validated_wavelet,
+        validated_sampling_period,
+        validated_method,
+        validated_precision,
+    ) = validate_cwt_configuration(
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    coefficients, frequencies = compute_cwt(
+        validated_signal,
+        validated_scales,
+        wavelet=validated_wavelet,
+        sampling_period=validated_sampling_period,
+        method=validated_method,
+        precision=validated_precision,
+    )
+
+    coefficients, frequencies = validate_cwt_result(
+        coefficients,
+        frequencies,
+        expected_signal_length=validated_signal.size,
+        expected_scale_count=validated_scales.size,
+    )
+
+    summary = summarize_cwt_result(
+        coefficients,
+        frequencies,
+    )
+
+    return (
+        coefficients,
+        frequencies,
+        summary,
+    )
 
 def main() -> int:
     """Run validation, signal preparation, and physical scale assignment."""

@@ -17,6 +17,7 @@ from analysis.f0.extract_cwt import (
     center_signal,
     convert_f0_domain,
     default_metadata_path,
+    extract_cwt,
     generate_period_grid,
     generate_physical_scales,
     infer_sampling_period,
@@ -28,6 +29,7 @@ from analysis.f0.extract_cwt import (
     resolve_period_range,
     scale_signal,
     scales_to_physical_coordinates,
+    summarize_cwt_result,
     summarize_masks,
     validate_arguments,
     validate_core_arrays,
@@ -2997,6 +2999,209 @@ def test_generate_physical_scales_summary_is_complete() -> None:
 
     assert set(summary) == expected_keys
 
+def test_summarize_cwt_result_returns_expected_keys():
+    coefficients = np.array(
+        [
+            [1.0, 2.0],
+            [3.0, 4.0],
+        ]
+    )
+
+    frequencies = np.array(
+        [10.0, 5.0],
+    )
+
+    summary = summarize_cwt_result(
+        coefficients,
+        frequencies,
+    )
+
+    assert set(summary) == {
+        "n_scales",
+        "n_frames",
+        "frequency_min_hz",
+        "frequency_max_hz",
+        "coefficient_dtype",
+        "coefficient_min",
+        "coefficient_max",
+        "coefficient_mean_abs",
+    }
+
+def test_summarize_cwt_result_reports_dimensions():
+    summary = summarize_cwt_result(
+        np.zeros((4, 20)),
+        np.array([8.0, 6.0, 4.0, 2.0]),
+    )
+
+    assert summary["n_scales"] == 4
+    assert summary["n_frames"] == 20
+
+def test_summarize_cwt_result_reports_frequency_range():
+    summary = summarize_cwt_result(
+        np.zeros((3, 10)),
+        np.array([20.0, 10.0, 5.0]),
+    )
+
+    assert summary["frequency_min_hz"] == 5.0
+    assert summary["frequency_max_hz"] == 20.0
+
+def test_summarize_cwt_result_reports_magnitude_statistics():
+    coefficients = np.array(
+        [
+            [-1.0, 2.0],
+            [-3.0, 4.0],
+        ]
+    )
+
+    summary = summarize_cwt_result(
+        coefficients,
+        np.array([2.0, 1.0]),
+    )
+
+    assert summary["coefficient_min"] == 1.0
+    assert summary["coefficient_max"] == 4.0
+
+    assert summary["coefficient_mean_abs"] == pytest.approx(
+        2.5
+    )
+
+def test_summarize_cwt_result_supports_complex_coefficients():
+    coefficients = np.array(
+        [
+            [1.0 + 1.0j],
+            [3.0 + 4.0j],
+        ]
+    )
+
+    summary = summarize_cwt_result(
+        coefficients,
+        np.array([2.0, 1.0]),
+    )
+
+    assert summary["coefficient_dtype"] == "complex128"
+
+    assert summary["coefficient_min"] == pytest.approx(
+        np.sqrt(2.0)
+    )
+
+    assert summary["coefficient_max"] == pytest.approx(
+        5.0
+    )
+
+def test_extract_cwt_returns_valid_result():
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            8.0 * np.pi,
+            256,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        33.0,
+        dtype=np.float64,
+    )
+
+    coefficients, frequencies, summary = (
+        extract_cwt(
+            signal,
+            scales,
+            wavelet="mexh",
+            sampling_period=0.01,
+            method="conv",
+            precision=12,
+        )
+    )
+
+    assert coefficients.shape == (
+        scales.size,
+        signal.size,
+    )
+
+    assert frequencies.shape == (
+        scales.size,
+    )
+
+    assert summary["n_scales"] == scales.size
+    assert summary["n_frames"] == signal.size
+
+def test_extract_cwt_summary_matches_outputs():
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            8.0 * np.pi,
+            256,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        33.0,
+        dtype=np.float64,
+    )
+
+    coefficients, frequencies, summary = (
+        extract_cwt(
+            signal,
+            scales,
+            wavelet="mexh",
+            sampling_period=0.01,
+            method="conv",
+            precision=12,
+        )
+    )
+
+    assert summary["n_scales"] == coefficients.shape[0]
+
+    assert summary["n_frames"] == coefficients.shape[1]
+
+    assert summary["frequency_min_hz"] == pytest.approx(
+        float(np.min(frequencies))
+    )
+
+    assert summary["frequency_max_hz"] == pytest.approx(
+        float(np.max(frequencies))
+    )
+
+def test_extract_cwt_propagates_signal_validation_error():
+    with pytest.raises(
+        ValueError,
+        match="Prepared CWT signal",
+    ):
+        extract_cwt(
+            np.array([1.0]),
+            np.array([1.0, 2.0]),
+            wavelet="mexh",
+            sampling_period=0.01,
+            method="conv",
+            precision=12,
+        )
+
+def test_extract_cwt_propagates_configuration_error():
+    signal = np.sin(
+        np.linspace(
+            0.0,
+            8.0 * np.pi,
+            256,
+        )
+    )
+
+    scales = np.arange(
+        1.0,
+        33.0,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(ValueError):
+        extract_cwt(
+            signal,
+            scales,
+            wavelet="mexh",
+            sampling_period=-1.0,
+            method="conv",
+            precision=12,
+        )
 
 def create_cli_cwt_inputs(
     tmp_path: Path,
