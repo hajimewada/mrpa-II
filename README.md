@@ -170,29 +170,38 @@ to be represented across multiple temporal resolutions.
 
 ## Research Pipeline
 
-### Implemented research components
+### Implemented pipeline
 
-The preceding MRPA work has investigated the following processing
-stages:
+The current implementation provides a validated and persistent
+Continuous Wavelet Transform pipeline:
 
 ```text
-Audio
+Continuous F0
   ↓
-F0 Extraction
+Input and Time-Axis Validation
   ↓
-F0 Interpolation
+Interpolation Metadata Validation
+  ↓
+CWT Signal Preparation
+  ↓
+Physical Period and Scale Generation
   ↓
 Continuous Wavelet Transform
   ↓
-ScaleProfile Analysis
+CWT Result Validation
+  ↓
+Metadata Generation and Validation
+  ↓
+Persistent CWT Representation
 ```
 
-These stages provide the experimental foundation for MRPA-II.
+This pipeline transforms an interpolated continuous-F0 track and its
+time axis into a compressed CWT archive and a versioned metadata file.
 
 ### Planned MRPA-II pipeline
 
-MRPA-II extends the preceding analysis toward primitive, node, and
-topology discovery:
+MRPA-II extends the implemented signal-processing foundation toward
+primitive, node, and topology discovery:
 
 ```text
 Audio
@@ -201,7 +210,15 @@ F0 Extraction
   ↓
 F0 Interpolation
   ↓
+Continuous F0 Validation
+  ↓
+CWT Signal Preparation
+  ↓
+Physical Scale Generation
+  ↓
 Continuous Wavelet Transform
+  ↓
+Persisted CWT Representation
   ↓
 ScaleProfile
   ↓
@@ -216,25 +233,184 @@ Prosodic Topology
 Cross-Linguistic Validation
 ```
 
-The distinction between implemented components and planned components is
-intentional. MRPA-II is currently at the design and initial
-implementation stage.
+The distinction between implemented and planned components is
+intentional. The validated CWT foundation is implemented; primitive,
+node, and topology discovery remain active research stages.
+
+## Current Implementation Status
+
+### Completed Milestones
+
+#### Milestone 1: Input validation and loading
+
+Implemented functionality includes:
+
+- command-line argument parsing;
+- input and output path validation;
+- continuous-F0 and time-axis loading;
+- array-shape and finite-value validation;
+- uniform sampling-period inference;
+- optional voicing-mask loading;
+- optional interpolation-mask loading;
+- interpolation-metadata loading and consistency validation;
+- interpolation-ratio validation.
+
+#### Milestone 2: CWT signal preparation
+
+Implemented functionality includes:
+
+- F0-domain conversion;
+- configurable signal centering;
+- signal scaling infrastructure;
+- dynamic-range validation;
+- integrated preparation of the signal used for CWT computation.
+
+#### Milestone 3: Physical scale generation
+
+Implemented functionality includes:
+
+- period-range resolution;
+- logarithmic and linear period-grid generation;
+- period-to-frequency conversion;
+- frequency-to-scale conversion;
+- physical-scale generation;
+- scale and period round-trip validation;
+- physical-coordinate summaries.
+
+#### Milestone 4: Validated CWT extraction
+
+Implemented functionality includes:
+
+- CWT signal and scale validation;
+- CWT configuration validation;
+- continuous wavelet transform computation;
+- coefficient-shape validation;
+- finite-output validation;
+- scale-frequency alignment validation;
+- CWT result validation;
+- CWT result summarization;
+- integrated extraction orchestration;
+- command-line integration;
+- CLI acceptance testing.
+
+#### Milestone 5: Metadata and output persistence
+
+Implemented functionality includes:
+
+- typed metadata schemas;
+- CWT configuration metadata;
+- prepared-signal metadata;
+- physical-scale metadata;
+- CWT result metadata;
+- metadata construction;
+- metadata validation;
+- compressed CWT archive generation;
+- JSON metadata persistence;
+- CLI persistence integration;
+- end-to-end persistence acceptance testing.
 
 ## Repository Status
 
-The repository currently contains the project definition and research
-roadmap.
+MRPA-II is in active implementation.
+
+The current codebase contains a complete and tested CWT preprocessing
+pipeline with validated input handling, signal preparation, physical
+scale generation, transform computation, metadata construction, output
+persistence, and command-line integration.
+
+Current validation status:
+
+```text
+tests/test_extract_cwt.py : 292 passed
+full test suite           : 306 passed
+```
+
+One known non-blocking warning originates from the installed `pyworld`
+package's use of the deprecated `pkg_resources` API.
+
+## Current Output Format
+
+The CWT pipeline produces two primary artifacts:
+
+```text
+cwt.npz
+cwt_metadata.json
+```
+
+If `--metadata-output` is not specified, the metadata filename is
+derived from the output archive name.
+
+For example:
+
+```text
+cwt.npz
+  ↓
+cwt_metadata.json
+```
+
+### CWT archive
+
+The compressed NumPy archive contains:
+
+```text
+coefficients
+frequencies
+```
+
+`coefficients` is a two-dimensional matrix with the shape:
+
+```text
+number_of_scales × number_of_frames
+```
+
+`frequencies` is a one-dimensional array aligned with the scale
+dimension of the coefficient matrix.
+
+### Metadata file
+
+The JSON metadata document uses a versioned top-level schema:
+
+```text
+format_version
+cwt_configuration
+signal_summary
+scale_summary
+cwt_summary
+```
+
+The metadata records:
+
+- wavelet configuration;
+- sampling period and sampling frequency;
+- CWT computation method and precision;
+- signal-preparation configuration and summary statistics;
+- physical period, frequency, and scale ranges;
+- CWT dimensions and coefficient statistics.
+
+The format version allows future schema evolution while preserving an
+explicit compatibility boundary.
+
+## Implemented Repository Structure
+
+The implemented repository includes the following core components:
 
 ```text
 mrpa-II/
-├── README.md
-└── .git/
+├── analysis/
+│   └── f0/
+│       ├── interpolate_f0.py
+│       └── extract_cwt.py
+├── tests/
+│   └── test_extract_cwt.py
+└── README.md
 ```
 
-The source-code structure described below is planned and will be added
-incrementally as the implementation proceeds.
+Additional files and supporting components may also be present as the
+repository evolves.
 
 ## Planned Repository Structure
+
+The broader planned structure remains:
 
 ```text
 mrpa-II/
@@ -264,26 +440,26 @@ mrpa-II/
 └── README.md
 ```
 
-Generated datasets and intermediate analysis files should not normally be
-committed to Git.
+Generated datasets and intermediate analysis artifacts should not
+normally be committed to Git.
 
 ## Installation
 
 > [!IMPORTANT]
-> The installation and execution commands in this section describe the
-> planned executable repository. They will become operational as the
-> corresponding source files and `requirements.txt` are added.
+> The CWT extraction and persistence pipeline is implemented and tested.
+> Dependency installation should use the repository's current dependency
+> specification when available.
 
 ### 1. System requirements
 
-Planned baseline environment:
+Baseline environment:
 
-- Linux or macOS
-- Python 3.11 or later
-- Git
-- A Python virtual environment
+- Linux or macOS;
+- Python 3.11 or later;
+- Git;
+- a Python virtual environment.
 
-A GPU is not expected to be required for the initial F0 and CWT analysis.
+The current F0 and CWT processing pipeline does not require a GPU.
 
 ### 2. Clone the repository
 
@@ -305,10 +481,10 @@ git log -1 --oneline --decorate
 python3 --version
 ```
 
-The planned baseline is Python 3.11 or later.
+The baseline is Python 3.11 or later.
 
-If the `python` command already points to the intended Python
-installation, it may be used instead of `python3`.
+If `python` already points to the intended Python installation, it may
+be used instead of `python3`.
 
 ### 4. Create a virtual environment
 
@@ -343,14 +519,102 @@ python -m pip install --upgrade pip setuptools wheel
 
 ### 6. Install project dependencies
 
-Once `requirements.txt` has been added:
+If the repository contains `requirements.txt`, install the declared
+dependencies with:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-A planned initial dependency set may include packages for:
+The current processing pipeline relies on packages for:
 
 - numerical array processing;
-- scientific signal processing;
-- audio loading
+- continuous wavelet analysis;
+- F0 and audio processing;
+- automated testing.
+
+## Current Executable Example
+
+The CWT pipeline accepts an interpolated continuous-F0 array and its
+corresponding time axis.
+
+```bash
+python analysis/f0/extract_cwt.py \
+    --input continuous_f0.npy \
+    --time-input time.npy \
+    --output cwt.npz
+```
+
+The default output set is:
+
+```text
+cwt.npz
+cwt_metadata.json
+```
+
+A metadata path may be specified explicitly:
+
+```bash
+python analysis/f0/extract_cwt.py \
+    --input continuous_f0.npy \
+    --time-input time.npy \
+    --output cwt.npz \
+    --metadata-output metadata.json
+```
+
+Optional inputs can be supplied when available:
+
+```bash
+python analysis/f0/extract_cwt.py \
+    --input continuous_f0.npy \
+    --time-input time.npy \
+    --voicing-input voicing_mask.npy \
+    --interpolation-mask-input interpolation_mask.npy \
+    --interpolation-metadata interpolation_metadata.json \
+    --output cwt.npz \
+    --metadata-output cwt_metadata.json
+```
+
+The CLI validates all declared inputs before running the transform. On
+success, it computes the CWT representation, constructs and validates
+the metadata, and saves both output artifacts.
+
+## Testing
+
+Run the CWT test module:
+
+```bash
+python -m pytest tests/test_extract_cwt.py -q
+```
+
+Run the complete test suite:
+
+```bash
+python -m pytest -q
+```
+
+Current validated baseline:
+
+```text
+tests/test_extract_cwt.py : 292 passed
+full test suite           : 306 passed
+```
+
+## Research Direction
+
+With the validated CWT and persistence foundation in place, the next
+research stages can focus on:
+
+- loading and validating persisted CWT representations;
+- ScaleProfile construction;
+- boundary-candidate discovery;
+- nucleus-candidate discovery;
+- variable-length node construction;
+- recursive containment;
+- cross-linguistic comparison;
+- integration with broader linguistic topology research.
+
+The central methodological constraint remains unchanged:
+
+> Discover acoustic and prosodic topology first. Introduce
+> language-specific linguistic interpretation afterward.
