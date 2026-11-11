@@ -3267,6 +3267,27 @@ def run_extract_cwt_cli(
         check=False,
     )
 
+def test_extract_cwt_cli_runs_cwt_pipeline(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "cwt.npz"
+
+    f0_path, time_path = create_cli_cwt_inputs(
+        tmp_path
+    )
+
+    result = run_extract_cwt_cli(
+        f0_path=f0_path,
+        time_path=time_path,
+        output_path=output_path,
+    )
+
+    assert result.returncode == 0
+
+    assert "Milestone 4 CWT extraction: OK" in result.stdout
+    assert "cwt scales" in result.stdout
+    assert "cwt frames" in result.stdout
+    assert "cwt frequency range" in result.stdout
 
 @pytest.mark.parametrize(
     ("extra_arguments", "expected_message"),
