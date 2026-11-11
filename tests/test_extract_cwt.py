@@ -5,6 +5,7 @@ import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -30,6 +31,8 @@ from analysis.f0.extract_cwt import (
     summarize_masks,
     validate_arguments,
     validate_core_arrays,
+    validate_cwt_result,
+    validate_cwt_result,
     validate_interpolation_metadata,
     validate_interpolation_ratio,
     validate_metadata_sampling_period,
@@ -196,7 +199,7 @@ def test_infer_sampling_period_rejects_irregular_time() -> None:
         infer_sampling_period(time_axis)
 
 
-def test_load_core_inputs(tmp_path) -> None:
+def test_load_core_inputs(tmp_path: Path) -> None:
     f0, time_axis = make_valid_arrays()
 
     f0_path = tmp_path / "f0.npy"
@@ -214,7 +217,7 @@ def test_load_core_inputs(tmp_path) -> None:
     assert np.array_equal(loaded_time, time_axis)
 
 
-def test_load_optional_mask_accepts_bool_mask(tmp_path) -> None:
+def test_load_optional_mask_accepts_bool_mask(tmp_path: Path) -> None:
     mask = np.array([True, False, True], dtype=bool)
     path = tmp_path / "mask.npy"
     np.save(path, mask)
@@ -230,7 +233,7 @@ def test_load_optional_mask_accepts_bool_mask(tmp_path) -> None:
     assert np.array_equal(loaded, mask)
 
 
-def test_load_optional_mask_rejects_integer_mask(tmp_path) -> None:
+def test_load_optional_mask_rejects_integer_mask(tmp_path: Path) -> None:
     mask = np.array([1, 0, 1], dtype=np.int64)
     path = tmp_path / "mask.npy"
     np.save(path, mask)
@@ -246,7 +249,7 @@ def test_load_optional_mask_rejects_integer_mask(tmp_path) -> None:
         )
 
 
-def test_load_optional_mask_rejects_shape_mismatch(tmp_path) -> None:
+def test_load_optional_mask_rejects_shape_mismatch(tmp_path: Path) -> None:
     mask = np.array([True, False], dtype=bool)
     path = tmp_path / "mask.npy"
     np.save(path, mask)
@@ -294,7 +297,7 @@ def test_validate_interpolation_ratio_rejects_excess() -> None:
         )
 
 
-def test_load_and_validate_interpolation_metadata(tmp_path) -> None:
+def test_load_and_validate_interpolation_metadata(tmp_path: Path) -> None:
     metadata = {
         "total_frames": 4,
         "observed_frames": 3,
@@ -375,7 +378,7 @@ def test_metadata_requires_observed_values_preserved() -> None:
 
 
 def test_validate_arguments_returns_default_metadata_path(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     f0, time_axis = make_valid_arrays()
 
@@ -408,7 +411,7 @@ def test_validate_arguments_returns_default_metadata_path(
     ],
 )
 def test_validate_arguments_rejects_invalid_numeric_values(
-    tmp_path,
+    tmp_path: Path,
     field: str,
     value: float | int,
     message: str,
@@ -433,7 +436,7 @@ def test_validate_arguments_rejects_invalid_numeric_values(
         validate_arguments(args)
 
 def test_validate_arguments_accepts_default_dynamic_range(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     f0, time_axis = make_valid_arrays()
 
@@ -457,7 +460,7 @@ def test_validate_arguments_accepts_default_dynamic_range(
 
 
 def test_validate_arguments_accepts_zero_dynamic_range_threshold(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     f0, time_axis = make_valid_arrays()
 
@@ -487,7 +490,7 @@ def test_validate_arguments_accepts_zero_dynamic_range_threshold(
     ],
 )
 def test_validate_arguments_rejects_invalid_dynamic_range(
-    tmp_path,
+    tmp_path: Path,
     invalid_value: float,
 ) -> None:
     f0, time_axis = make_valid_arrays()
@@ -948,7 +951,7 @@ def test_validate_signal_variation_rejects_range_below_threshold() -> None:
     ],
 )
 def test_validate_signal_variation_rejects_invalid_threshold(
-    invalid_threshold,
+    invalid_threshold: float | np.bool_[Literal[True]] | np.bool_[Literal[False]] | None | bool | Literal['1e-12'],
 ) -> None:
     signal = np.array(
         [-1.0, 0.0, 1.0],
@@ -1344,7 +1347,7 @@ def test_prepare_cwt_signal_preserves_input_exactly() -> None:
         np.float64(0.25),
     ],
 )
-def test_validate_positive_real_accepts_numeric_scalars(value) -> None:
+def test_validate_positive_real_accepts_numeric_scalars(value: float | np.signedinteger | np.float64 | Literal[1]) -> None:
     result = validate_positive_real(
         value,
         name="test_value",
@@ -1373,7 +1376,7 @@ def test_validate_positive_real_accepts_numeric_scalars(value) -> None:
     ],
 )
 def test_validate_positive_real_rejects_invalid_values(
-    invalid_value,
+    invalid_value: float | np.bool_[Literal[True]] | None | Literal[0] | Literal[-1] | bool | Literal['0.5'],
 ) -> None:
     with pytest.raises(
         ValueError,
@@ -1613,7 +1616,7 @@ def test_resolve_period_range_rejects_invalid_required_values(
     ],
 )
 def test_resolve_period_range_rejects_invalid_explicit_maximum(
-    invalid_maximum,
+    invalid_maximum: float | Literal[True] | Literal['0.5'],
 ) -> None:
     with pytest.raises(
         ValueError,
@@ -1832,7 +1835,7 @@ def test_generate_period_grid_two_scales() -> None:
     ],
 )
 def test_generate_period_grid_rejects_invalid_scale_count(
-    invalid_count,
+    invalid_count: float | np.bool_[Literal[True]] | None | Literal[0] | Literal[1] | Literal[-1] | bool | Literal['64'],
 ) -> None:
     with pytest.raises(
         ValueError,
@@ -1858,7 +1861,7 @@ def test_generate_period_grid_rejects_invalid_scale_count(
     ],
 )
 def test_generate_period_grid_rejects_invalid_spacing(
-    invalid_spacing,
+    invalid_spacing: None | Literal['geometric'] | Literal['logarithmic'] | Literal['LINEAR'] | Literal[''] | Literal[1],
 ) -> None:
     with pytest.raises(
         ValueError,
@@ -2568,7 +2571,7 @@ def test_compute_cwt_frequency_alignment():
     ["conv", "fft"],
 )
 def test_compute_cwt_supports_both_methods(
-    method,
+    method: Literal['conv'] | Literal['fft'],
 ):
     signal = np.sin(
         np.linspace(
@@ -2609,6 +2612,165 @@ def test_compute_cwt_supports_both_methods(
 
     assert frequencies.size == scales.size
 
+
+def test_validate_cwt_result_accepts_valid_output():
+    signal = np.sin(
+        np.linspace(0.0, 8.0 * np.pi, 256)
+    )
+
+    scales = np.arange(
+        1.0,
+        33.0,
+        dtype=np.float64,
+    )
+
+    wavelet, sampling_period, method, precision = (
+        validate_cwt_configuration(
+            wavelet="mexh",
+            sampling_period=0.01,
+            method="conv",
+            precision=12,
+        )
+    )
+
+    coefficients, frequencies = compute_cwt(
+        signal,
+        scales,
+        wavelet=wavelet,
+        sampling_period=sampling_period,
+        method=method,
+        precision=precision,
+    )
+
+    validated_coefficients, validated_frequencies = (
+        validate_cwt_result(
+            coefficients,
+            frequencies,
+            expected_signal_length=signal.size,
+            expected_scale_count=scales.size,
+        )
+    )
+
+    assert validated_coefficients.shape == (
+        scales.size,
+        signal.size,
+    )
+
+    assert validated_frequencies.shape == (
+        scales.size,
+    )
+
+def test_validate_cwt_result_rejects_non_2d_coefficients():
+    with pytest.raises(
+        ValueError,
+        match="two-dimensional",
+    ):
+        validate_cwt_result(
+            np.zeros((2, 3, 4)),
+            np.array([4.0, 3.0]),
+            expected_signal_length=3,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_bad_coefficient_shape():
+    with pytest.raises(
+        ValueError,
+        match="Unexpected CWT coefficient shape",
+    ):
+        validate_cwt_result(
+            np.zeros((3, 10)),
+            np.array([5.0, 4.0, 3.0]),
+            expected_signal_length=9,
+            expected_scale_count=3,
+        )
+
+def test_validate_cwt_result_rejects_nonfinite_coefficients():
+    coefficients = np.zeros((2, 10))
+    coefficients[0, 0] = np.nan
+
+    with pytest.raises(
+        ValueError,
+        match="finite values",
+    ):
+        validate_cwt_result(
+            coefficients,
+            np.array([2.0, 1.0]),
+            expected_signal_length=10,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_non_1d_frequencies():
+    with pytest.raises(
+        ValueError,
+        match="one-dimensional",
+    ):
+        validate_cwt_result(
+            np.zeros((2, 10)),
+            np.zeros((2, 1)),
+            expected_signal_length=10,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_frequency_count_mismatch():
+    with pytest.raises(
+        ValueError,
+        match="length does not match",
+    ):
+        validate_cwt_result(
+            np.zeros((2, 10)),
+            np.array([3.0]),
+            expected_signal_length=10,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_nonfinite_frequencies():
+    with pytest.raises(
+        ValueError,
+        match="finite values",
+    ):
+        validate_cwt_result(
+            np.zeros((2, 10)),
+            np.array([2.0, np.nan]),
+            expected_signal_length=10,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_zero_frequencies():
+    with pytest.raises(
+        ValueError,
+        match="strictly positive",
+    ):
+        validate_cwt_result(
+            np.zeros((2, 10)),
+            np.array([2.0, 0.0]),
+            expected_signal_length=10,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_negative_frequencies():
+    with pytest.raises(
+        ValueError,
+        match="strictly positive",
+    ):
+        validate_cwt_result(
+            np.zeros((2, 10)),
+            np.array([2.0, -1.0]),
+            expected_signal_length=10,
+            expected_scale_count=2,
+        )
+
+def test_validate_cwt_result_rejects_nondecreasing_frequencies():
+    with pytest.raises(
+        ValueError,
+        match="strictly decreasing",
+    ):
+        validate_cwt_result(
+            np.zeros((3, 10)),
+            np.array([4.0, 5.0, 2.0]),
+            expected_signal_length=10,
+            expected_scale_count=3,
+        )
+        
 def test_validate_continuous_wavelet_accepts_morl() -> None:
     wavelet = validate_continuous_wavelet("morl")
 
@@ -2625,7 +2787,7 @@ def test_validate_continuous_wavelet_accepts_morl() -> None:
     ],
 )
 def test_validate_continuous_wavelet_rejects_invalid_name(
-    invalid_wavelet,
+    invalid_wavelet: None | Literal[''] | Literal['not-a-wavelet'] | Literal[1],
 ) -> None:
     with pytest.raises(
         ValueError,

@@ -2214,6 +2214,132 @@ def compute_cwt(
 
     return coefficients, frequencies
 
+def validate_cwt_result(
+    coefficients: np.ndarray,
+    frequencies: np.ndarray,
+    *,
+    expected_signal_length: int,
+    expected_scale_count: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Validate outputs returned by CWT computation.
+
+    Args:
+        coefficients:
+            CWT coefficient matrix returned by ``pywt.cwt``.
+
+        frequencies:
+            Frequency array returned by ``pywt.cwt``.
+
+        expected_signal_length:
+            Expected signal frame count.
+
+        expected_scale_count:
+            Expected number of scales.
+
+    Returns:
+        Independent validated copies of:
+
+        - the CWT coefficient matrix;
+        - the CWT frequency array.
+
+    Raises:
+        ValueError:
+            If the result violates the CWT output contract.
+    """
+
+    if isinstance(expected_signal_length, bool) or not isinstance(
+        expected_signal_length,
+        (int, np.integer),
+    ):
+        raise TypeError(
+            "expected_signal_length must be an integer "
+            "and must not be boolean"
+        )
+
+    if isinstance(expected_scale_count, bool) or not isinstance(
+        expected_scale_count,
+        (int, np.integer),
+    ):
+        raise TypeError(
+            "expected_scale_count must be an integer "
+            "and must not be boolean"
+        )
+
+    expected_signal_length = int(expected_signal_length)
+    expected_scale_count = int(expected_scale_count)
+
+    if expected_signal_length < 1:
+        raise ValueError(
+            "expected_signal_length must be positive"
+        )
+
+    if expected_scale_count < 1:
+        raise ValueError(
+            "expected_scale_count must be positive"
+        )
+
+    coefficient_array = np.array(
+        coefficients,
+        copy=True,
+    )
+
+    if coefficient_array.ndim != 2:
+        raise ValueError(
+            "CWT coefficient matrix must be two-dimensional"
+        )
+
+    expected_shape = (
+        expected_scale_count,
+        expected_signal_length,
+    )
+
+    if coefficient_array.shape != expected_shape:
+        raise ValueError(
+            "Unexpected CWT coefficient shape; "
+            f"expected {expected_shape}, "
+            f"got {coefficient_array.shape}"
+        )
+
+    if not np.all(np.isfinite(coefficient_array)):
+        raise ValueError(
+            "CWT coefficient matrix must contain only finite values"
+        )
+
+    frequency_array = np.asarray(
+        frequencies,
+        dtype=np.float64,
+    ).copy()
+
+    if frequency_array.ndim != 1:
+        raise ValueError(
+            "CWT frequency array must be one-dimensional"
+        )
+
+    if frequency_array.size != expected_scale_count:
+        raise ValueError(
+            "CWT frequency array length does not match "
+            f"expected scale count {expected_scale_count}; "
+            f"got {frequency_array.size}"
+        )
+
+    if not np.all(np.isfinite(frequency_array)):
+        raise ValueError(
+            "CWT frequency array must contain only finite values"
+        )
+
+    if np.any(frequency_array <= 0.0):
+        raise ValueError(
+            "CWT frequencies must be strictly positive"
+        )
+
+    if np.any(np.diff(frequency_array) >= 0.0):
+        raise ValueError(
+            "CWT frequencies must be strictly decreasing"
+        )
+
+    return coefficient_array, frequency_array
+
+
 def main() -> int:
     """Run validation, signal preparation, and physical scale assignment."""
 
