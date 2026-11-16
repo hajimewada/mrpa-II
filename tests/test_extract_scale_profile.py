@@ -13,10 +13,25 @@ from analysis.f0.extract_cwt import (
 )
 
 from analysis.f0.extract_scale_profile import (
+    CENTROID_COORDINATE,
+    DISPERSION_COORDINATE,
+    DOMINANT_SCALE_TIE_POLICY,
+    MAGNITUDE_TRANSFORM,
+    NUMBER_OF_FRAME_STATISTICS,
+    NUMBER_OF_SCALE_STATISTICS,
+    SCALE_PROFILE_FORMAT_VERSION,
+    STANDARD_DEVIATION_CONVENTION,
+    ZERO_ENERGY_POLICY,
+    SCALE_PROFILE_REQUIRED_KEYS,
     SOURCE_CWT_REQUIRED_KEYS,
+    build_scale_profile,
+    build_scale_profile_metadata,
     compute_cwt_magnitude,
+    compute_frame_statistics,
+    compute_scale_statistics,
     load_cwt_outputs,
     validate_loaded_cwt,
+    validate_scale_profile_arrays,
 )
 
 
@@ -852,3 +867,1534 @@ def test_compute_cwt_magnitude_rejects_nonfinite_result():
             compute_cwt_magnitude(
                 coefficients,
             )
+
+def test_compute_scale_statistics_returns_expected_values():
+    magnitude = np.array(
+        [
+            [1.0, 2.0, 3.0, 4.0],
+            [2.0, 2.0, 2.0, 2.0],
+        ],
+        dtype=np.float64,
+    )
+
+    statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    np.testing.assert_allclose(
+        statistics["scale_mean"],
+        np.array([2.5, 2.0]),
+    )
+
+    np.testing.assert_allclose(
+        statistics["scale_std"],
+        np.array(
+            [
+                np.std(
+                    [1.0, 2.0, 3.0, 4.0],
+                    ddof=0,
+                ),
+                0.0,
+            ]
+        ),
+    )
+
+    np.testing.assert_allclose(
+        statistics["scale_median"],
+        np.array([2.5, 2.0]),
+    )
+
+    np.testing.assert_allclose(
+        statistics["scale_max"],
+        np.array([4.0, 2.0]),
+    )
+
+    np.testing.assert_allclose(
+        statistics["scale_rms"],
+        np.array(
+            [
+                np.sqrt(7.5),
+                2.0,
+            ]
+        ),
+    )
+
+def test_compute_scale_statistics_returns_expected_schema():
+    magnitude = np.ones(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+
+    statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    assert set(statistics) == {
+        "scale_mean",
+        "scale_std",
+        "scale_median",
+        "scale_max",
+        "scale_rms",
+    }
+
+    for values in statistics.values():
+        assert values.shape == (3,)
+        assert values.dtype == np.float64
+
+def test_compute_scale_statistics_accepts_zero_magnitude():
+    magnitude = np.zeros(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+
+    statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    for values in statistics.values():
+        np.testing.assert_array_equal(
+            values,
+            np.zeros(3),
+        )
+
+def test_compute_scale_statistics_returns_finite_nonnegative_values():
+    magnitude = np.linspace(
+        0.0,
+        10.0,
+        3 * MINIMUM_FRAMES,
+        dtype=np.float64,
+    ).reshape(
+        3,
+        MINIMUM_FRAMES,
+    )
+
+    statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    for values in statistics.values():
+        assert np.all(np.isfinite(values))
+        assert np.all(values >= 0.0)
+
+def test_compute_scale_statistics_does_not_modify_input():
+    magnitude = np.arange(
+        3 * MINIMUM_FRAMES,
+        dtype=np.float64,
+    ).reshape(
+        3,
+        MINIMUM_FRAMES,
+    )
+
+    original = magnitude.copy()
+
+    statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    np.testing.assert_array_equal(
+        magnitude,
+        original,
+    )
+
+    for values in statistics.values():
+        assert not np.shares_memory(
+            values,
+            magnitude,
+        )
+
+def test_compute_scale_statistics_rejects_non_2d_magnitude():
+    with pytest.raises(
+        ValueError,
+        match="two-dimensional",
+    ):
+        compute_scale_statistics(
+            np.zeros(
+                MINIMUM_FRAMES,
+                dtype=np.float64,
+            )
+        )
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (0, MINIMUM_FRAMES),
+        (3, 0),
+    ],
+    ids=[
+        "no-scales",
+        "no-frames",
+    ],
+)
+def test_compute_scale_statistics_rejects_empty_axis(
+    shape: tuple[int, int],
+):
+    with pytest.raises(
+        ValueError,
+        match="at least one",
+    ):
+        compute_scale_statistics(
+            np.zeros(
+                shape,
+                dtype=np.float64,
+            )
+        )
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_compute_scale_statistics_rejects_nonfinite_magnitude(
+    invalid_value: float,
+):
+    magnitude = np.ones(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+
+    magnitude[0, 0] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match="finite values",
+    ):
+        compute_scale_statistics(
+            magnitude,
+        )
+
+def test_compute_scale_statistics_rejects_negative_magnitude():
+    magnitude = np.ones(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+
+    magnitude[0, 0] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match="non-negative",
+    ):
+        compute_scale_statistics(
+            magnitude,
+        )
+
+def test_compute_scale_statistics_rejects_nonfinite_rms():
+    magnitude_value = (
+        2.0
+        * np.sqrt(
+            np.finfo(np.float64).max
+        )
+    )
+
+    magnitude = np.full(
+        (2, MINIMUM_FRAMES),
+        magnitude_value,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="scale_rms.*finite values",
+    ):
+        compute_scale_statistics(
+            magnitude,
+        )
+
+def test_compute_frame_statistics_returns_expected_basic_values():
+    magnitude = np.array(
+        [
+            [1.0, 0.0, 4.0],
+            [2.0, 0.0, 1.0],
+            [3.0, 0.0, 2.0],
+        ],
+        dtype=np.float64,
+    )
+
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    np.testing.assert_allclose(
+        statistics["frame_total"],
+        np.array([6.0, 0.0, 7.0]),
+    )
+
+    np.testing.assert_allclose(
+        statistics["frame_mean"],
+        np.array(
+            [
+                2.0,
+                0.0,
+                7.0 / 3.0,
+            ]
+        ),
+    )
+
+    np.testing.assert_allclose(
+        statistics["frame_max"],
+        np.array([3.0, 0.0, 4.0]),
+    )
+
+def test_compute_frame_statistics_reports_dominant_scale():
+    magnitude = np.array(
+        [
+            [1.0, 5.0, 4.0],
+            [2.0, 1.0, 4.0],
+            [3.0, 2.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    np.testing.assert_array_equal(
+        statistics["dominant_scale_index"],
+        np.array(
+            [2, 0, 0],
+            dtype=np.int64,
+        ),
+    )
+
+    np.testing.assert_allclose(
+        statistics["dominant_frequency_hz"],
+        np.array([5.0, 20.0, 20.0]),
+    )
+
+def test_compute_frame_statistics_reports_centroid_and_dispersion():
+    magnitude = np.array(
+        [
+            [1.0],
+            [1.0],
+        ],
+        dtype=np.float64,
+    )
+
+    frequencies = np.array(
+        [20.0, 10.0],
+        dtype=np.float64,
+    )
+
+    statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    assert statistics[
+        "frequency_centroid_hz"
+    ][0] == pytest.approx(
+        15.0
+    )
+
+    assert statistics[
+        "frequency_dispersion_hz"
+    ][0] == pytest.approx(
+        5.0
+    )
+
+def test_compute_frame_statistics_applies_zero_energy_policy():
+    magnitude = np.zeros(
+        (3, 4),
+        dtype=np.float64,
+    )
+
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    np.testing.assert_array_equal(
+        statistics["frame_total"],
+        np.zeros(4),
+    )
+    np.testing.assert_array_equal(
+        statistics["frame_mean"],
+        np.zeros(4),
+    )
+    np.testing.assert_array_equal(
+        statistics["frame_max"],
+        np.zeros(4),
+    )
+    np.testing.assert_array_equal(
+        statistics["dominant_scale_index"],
+        np.zeros(
+            4,
+            dtype=np.int64,
+        ),
+    )
+    np.testing.assert_array_equal(
+        statistics["dominant_frequency_hz"],
+        np.full(
+            4,
+            20.0,
+        ),
+    )
+    np.testing.assert_array_equal(
+        statistics["frequency_centroid_hz"],
+        np.zeros(4),
+    )
+    np.testing.assert_array_equal(
+        statistics["frequency_dispersion_hz"],
+        np.zeros(4),
+    )
+
+def test_compute_frame_statistics_returns_expected_schema():
+    magnitude = np.ones(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    assert set(statistics) == {
+        "frame_total",
+        "frame_mean",
+        "frame_max",
+        "dominant_scale_index",
+        "dominant_frequency_hz",
+        "frequency_centroid_hz",
+        "frequency_dispersion_hz",
+    }
+
+    for name, values in statistics.items():
+        assert values.shape == (
+            MINIMUM_FRAMES,
+        )
+
+        if name == "dominant_scale_index":
+            assert values.dtype == np.int64
+        else:
+            assert values.dtype == np.float64
+
+def test_compute_frame_statistics_does_not_modify_inputs():
+    magnitude = np.arange(
+        3 * MINIMUM_FRAMES,
+        dtype=np.float64,
+    ).reshape(
+        3,
+        MINIMUM_FRAMES,
+    )
+
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    original_magnitude = magnitude.copy()
+    original_frequencies = frequencies.copy()
+
+    statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    np.testing.assert_array_equal(
+        magnitude,
+        original_magnitude,
+    )
+    np.testing.assert_array_equal(
+        frequencies,
+        original_frequencies,
+    )
+
+    for values in statistics.values():
+        assert not np.shares_memory(
+            values,
+            magnitude,
+        )
+        assert not np.shares_memory(
+            values,
+            frequencies,
+        )
+
+def test_compute_frame_statistics_rejects_non_2d_magnitude():
+    with pytest.raises(
+        ValueError,
+        match="two-dimensional",
+    ):
+        compute_frame_statistics(
+            np.zeros(
+                MINIMUM_FRAMES,
+                dtype=np.float64,
+            ),
+            np.array(
+                [20.0],
+                dtype=np.float64,
+            ),
+        )
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (0, MINIMUM_FRAMES),
+        (3, 0),
+    ],
+    ids=[
+        "no-scales",
+        "no-frames",
+    ],
+)
+def test_compute_frame_statistics_rejects_empty_axis(
+    shape: tuple[int, int],
+):
+    frequencies = np.linspace(
+        20.0,
+        5.0,
+        shape[0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="at least one",
+    ):
+        compute_frame_statistics(
+            np.zeros(
+                shape,
+                dtype=np.float64,
+            ),
+            frequencies,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+)
+def test_compute_frame_statistics_rejects_nonfinite_magnitude(
+    invalid_value: float,
+):
+    magnitude = np.ones(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+    magnitude[0, 0] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match="finite values",
+    ):
+        compute_frame_statistics(
+            magnitude,
+            np.array(
+                [20.0, 10.0, 5.0],
+                dtype=np.float64,
+            ),
+        )
+
+def test_compute_frame_statistics_rejects_negative_magnitude():
+    magnitude = np.ones(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+    magnitude[0, 0] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match="non-negative",
+    ):
+        compute_frame_statistics(
+            magnitude,
+            np.array(
+                [20.0, 10.0, 5.0],
+                dtype=np.float64,
+            ),
+        )
+
+def test_compute_frame_statistics_rejects_frequency_count_mismatch():
+    with pytest.raises(
+        ValueError,
+        match="frequency count",
+    ):
+        compute_frame_statistics(
+            np.ones(
+                (3, MINIMUM_FRAMES),
+                dtype=np.float64,
+            ),
+            np.array(
+                [20.0, 10.0],
+                dtype=np.float64,
+            ),
+        )
+
+def test_compute_frame_statistics_rejects_nondecreasing_frequencies():
+    with pytest.raises(
+        ValueError,
+        match="strictly decreasing",
+    ):
+        compute_frame_statistics(
+            np.ones(
+                (3, MINIMUM_FRAMES),
+                dtype=np.float64,
+            ),
+            np.array(
+                [20.0, 5.0, 10.0],
+                dtype=np.float64,
+            ),
+        )
+
+def create_scale_profile_components() -> tuple[
+    np.ndarray,
+    np.ndarray,
+    dict[str, np.ndarray],
+    dict[str, np.ndarray],
+]:
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    magnitude = np.arange(
+        3 * MINIMUM_FRAMES,
+        dtype=np.float64,
+    ).reshape(
+        3,
+        MINIMUM_FRAMES,
+    )
+
+    scale_statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    frame_statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    return (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    )
+
+def test_build_scale_profile_returns_required_arrays():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    scale_profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    assert set(scale_profile) == set(
+        SCALE_PROFILE_REQUIRED_KEYS
+    )
+
+    np.testing.assert_array_equal(
+        scale_profile["frequencies"],
+        frequencies,
+    )
+
+    np.testing.assert_array_equal(
+        scale_profile["magnitude"],
+        magnitude,
+    )
+
+    for key, expected in scale_statistics.items():
+        np.testing.assert_array_equal(
+            scale_profile[key],
+            expected,
+        )
+
+    for key, expected in frame_statistics.items():
+        np.testing.assert_array_equal(
+            scale_profile[key],
+            expected,
+        )
+
+def test_build_scale_profile_preserves_shapes_and_dtypes():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    scale_profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    assert scale_profile["frequencies"].shape == (3,)
+    assert scale_profile["magnitude"].shape == (
+        3,
+        MINIMUM_FRAMES,
+    )
+
+    for key in (
+        "scale_mean",
+        "scale_std",
+        "scale_median",
+        "scale_max",
+        "scale_rms",
+    ):
+        assert scale_profile[key].shape == (3,)
+        assert scale_profile[key].dtype == np.float64
+
+    for key in (
+        "frame_total",
+        "frame_mean",
+        "frame_max",
+        "dominant_frequency_hz",
+        "frequency_centroid_hz",
+        "frequency_dispersion_hz",
+    ):
+        assert scale_profile[key].shape == (
+            MINIMUM_FRAMES,
+        )
+        assert scale_profile[key].dtype == np.float64
+
+    assert scale_profile[
+        "dominant_scale_index"
+    ].shape == (
+        MINIMUM_FRAMES,
+    )
+
+    assert scale_profile[
+        "dominant_scale_index"
+    ].dtype == np.int64
+
+def test_build_scale_profile_returns_independent_arrays():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    scale_profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    original_frequency = frequencies[0]
+    original_magnitude = magnitude[0, 0]
+    original_scale_mean = (
+        scale_statistics["scale_mean"][0]
+    )
+    original_frame_total = (
+        frame_statistics["frame_total"][0]
+    )
+
+    scale_profile["frequencies"][0] = -999.0
+    scale_profile["magnitude"][0, 0] = -999.0
+    scale_profile["scale_mean"][0] = -999.0
+    scale_profile["frame_total"][0] = -999.0
+
+    assert frequencies[0] == original_frequency
+    assert magnitude[0, 0] == original_magnitude
+    assert (
+        scale_statistics["scale_mean"][0]
+        == original_scale_mean
+    )
+    assert (
+        frame_statistics["frame_total"][0]
+        == original_frame_total
+    )
+
+def test_build_scale_profile_rejects_frequency_shape_mismatch():
+    (
+        _,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    with pytest.raises(
+        ValueError,
+        match="frequency shape",
+    ):
+        build_scale_profile(
+            frequencies=np.array(
+                [20.0, 10.0],
+                dtype=np.float64,
+            ),
+            magnitude=magnitude,
+            scale_statistics=scale_statistics,
+            frame_statistics=frame_statistics,
+        )
+
+def test_build_scale_profile_rejects_scale_statistic_shape():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    scale_statistics["scale_mean"] = np.zeros(
+        2,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="scale_mean.*unexpected shape",
+    ):
+        build_scale_profile(
+            frequencies=frequencies,
+            magnitude=magnitude,
+            scale_statistics=scale_statistics,
+            frame_statistics=frame_statistics,
+        )
+
+def test_build_scale_profile_rejects_frame_statistic_shape():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    frame_statistics["frame_total"] = np.zeros(
+        MINIMUM_FRAMES - 1,
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="frame_total.*unexpected shape",
+    ):
+        build_scale_profile(
+            frequencies=frequencies,
+            magnitude=magnitude,
+            scale_statistics=scale_statistics,
+            frame_statistics=frame_statistics,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "statistics_name",
+        "missing_key",
+    ),
+    [
+        (
+            "scale",
+            "scale_mean",
+        ),
+        (
+            "frame",
+            "frame_total",
+        ),
+    ],
+)
+def test_build_scale_profile_rejects_missing_statistic(
+    statistics_name: str,
+    missing_key: str,
+):
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    if statistics_name == "scale":
+        del scale_statistics[missing_key]
+    else:
+        del frame_statistics[missing_key]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        build_scale_profile(
+            frequencies=frequencies,
+            magnitude=magnitude,
+            scale_statistics=scale_statistics,
+            frame_statistics=frame_statistics,
+        )
+
+def test_validate_scale_profile_arrays_accepts_valid_profile():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    validated = validate_scale_profile_arrays(
+        profile,
+    )
+
+    assert set(validated) == set(
+        SCALE_PROFILE_REQUIRED_KEYS
+    )
+
+    for key in SCALE_PROFILE_REQUIRED_KEYS:
+        np.testing.assert_array_equal(
+            validated[key],
+            profile[key],
+        )
+
+def test_validate_scale_profile_arrays_returns_independent_copies():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    validated = validate_scale_profile_arrays(
+        profile,
+    )
+
+    validated["frequencies"][0] = -999.0
+    validated["magnitude"][0, 0] = -999.0
+    validated["frame_total"][0] = -999.0
+
+    assert profile["frequencies"][0] != -999.0
+    assert profile["magnitude"][0, 0] != -999.0
+    assert profile["frame_total"][0] != -999.0
+
+def test_validate_scale_profile_arrays_rejects_missing_key():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    del profile["scale_mean"]
+
+    with pytest.raises(
+        KeyError,
+        match="scale_mean",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+def test_validate_scale_profile_arrays_rejects_unexpected_key():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile["unexpected"] = np.zeros(1)  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match="unexpected arrays",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "magnitude",
+        "scale_mean",
+        "frame_total",
+        "frequency_centroid_hz",
+    ],
+)
+def test_validate_scale_profile_arrays_rejects_nonfinite_value(
+    key: str,
+):
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile[key].flat[0] = np.nan
+
+    with pytest.raises(
+        ValueError,
+        match="finite",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "magnitude",
+        "scale_std",
+        "scale_rms",
+        "frame_total",
+        "frequency_dispersion_hz",
+    ],
+)
+def test_validate_scale_profile_arrays_rejects_negative_value(
+    key: str,
+):
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile[key].flat[0] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match="non-negative",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+def test_validate_scale_profile_arrays_rejects_noninteger_index():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile["dominant_scale_index"] = (
+        profile["dominant_scale_index"].astype(
+            np.float64
+        )
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="integer dtype",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+def test_validate_scale_profile_arrays_rejects_out_of_range_index():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile["dominant_scale_index"][0] = (
+        profile["frequencies"].size
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="out-of-range",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+def test_validate_scale_profile_arrays_rejects_dominant_frequency_mismatch():
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile["dominant_frequency_hz"][0] += 1.0
+
+    with pytest.raises(
+        ValueError,
+        match="dominant_frequency_hz",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_centroid",
+    [
+        4.0,
+        21.0,
+    ],
+)
+def test_validate_scale_profile_arrays_rejects_centroid_outside_range(
+    invalid_centroid: float,
+):
+    (
+        frequencies,
+        magnitude,
+        scale_statistics,
+        frame_statistics,
+    ) = create_scale_profile_components()
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile["frequency_centroid_hz"][0] = (
+        invalid_centroid
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="frequency range",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "frequency_centroid_hz",
+        "frequency_dispersion_hz",
+    ],
+)
+def test_validate_scale_profile_arrays_rejects_nonzero_zero_energy_statistic(
+    key: str,
+):
+    frequencies = np.array(
+        [20.0, 10.0, 5.0],
+        dtype=np.float64,
+    )
+
+    magnitude = np.zeros(
+        (3, MINIMUM_FRAMES),
+        dtype=np.float64,
+    )
+
+    scale_statistics = compute_scale_statistics(
+        magnitude,
+    )
+    frame_statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    profile[key][0] = 1.0
+
+    with pytest.raises(
+        ValueError,
+        match="Zero-energy frames",
+    ):
+        validate_scale_profile_arrays(
+            profile,
+        )
+
+def create_scale_profile_metadata_inputs():
+    (
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    magnitude = compute_cwt_magnitude(
+        coefficients,
+    )
+
+    scale_statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    frame_statistics = compute_frame_statistics(
+        magnitude,
+        frequencies,
+    )
+
+    scale_profile = build_scale_profile(
+        frequencies=frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    scale_profile = validate_scale_profile_arrays(
+        scale_profile,
+    )
+
+    return (
+        source_cwt_metadata,
+        scale_profile,
+    )
+
+def test_build_scale_profile_metadata_returns_expected_schema():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    assert set(metadata) == {
+        "format_version",
+        "source_cwt",
+        "feature_configuration",
+        "shape_summary",
+        "scale_statistics_summary",
+        "frame_statistics_summary",
+    }
+
+    assert (
+        metadata["format_version"]
+        == SCALE_PROFILE_FORMAT_VERSION
+    )
+
+def test_build_scale_profile_metadata_preserves_source_cwt():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    source = metadata["source_cwt"]
+
+    assert source["metadata_format_version"] == 1
+    assert source["wavelet"] == "mexh"
+    assert source["sampling_period"] == pytest.approx(
+        0.005
+    )
+    assert source["sampling_frequency"] == pytest.approx(
+        200.0
+    )
+    assert source["method"] == "conv"
+    assert source["precision"] == 12
+    assert source["coefficient_dtype"] == "float64"
+    assert source["number_of_scales"] == 3
+    assert source["number_of_frames"] == MINIMUM_FRAMES
+    assert source["minimum_frequency_hz"] == pytest.approx(
+        5.0
+    )
+    assert source["maximum_frequency_hz"] == pytest.approx(
+        20.0
+    )
+
+def test_build_scale_profile_metadata_records_feature_configuration():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    configuration = metadata[
+        "feature_configuration"
+    ]
+
+    assert (
+        configuration["magnitude_transform"]
+        == MAGNITUDE_TRANSFORM
+    )
+    assert (
+        configuration[
+            "standard_deviation_convention"
+        ]
+        == STANDARD_DEVIATION_CONVENTION
+    )
+    assert (
+        configuration["zero_energy_policy"]
+        == ZERO_ENERGY_POLICY
+    )
+    assert (
+        configuration[
+            "dominant_scale_tie_policy"
+        ]
+        == DOMINANT_SCALE_TIE_POLICY
+    )
+    assert (
+        configuration["centroid_coordinate"]
+        == CENTROID_COORDINATE
+    )
+    assert (
+        configuration["dispersion_coordinate"]
+        == DISPERSION_COORDINATE
+    )
+
+def test_build_scale_profile_metadata_reports_shapes():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    shape_summary = metadata["shape_summary"]
+
+    assert shape_summary["number_of_scales"] == 3
+    assert (
+        shape_summary["number_of_frames"]
+        == MINIMUM_FRAMES
+    )
+    assert shape_summary["frequencies_shape"] == [3]
+    assert shape_summary["magnitude_shape"] == [
+        3,
+        MINIMUM_FRAMES,
+    ]
+    assert shape_summary["scale_statistic_shape"] == [
+        3
+    ]
+    assert shape_summary["frame_statistic_shape"] == [
+        MINIMUM_FRAMES
+    ]
+    assert (
+        shape_summary["number_of_scale_statistics"]
+        == NUMBER_OF_SCALE_STATISTICS
+    )
+    assert (
+        shape_summary["number_of_frame_statistics"]
+        == NUMBER_OF_FRAME_STATISTICS
+    )
+
+def test_build_scale_profile_metadata_reports_scale_statistics():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    summary = metadata[
+        "scale_statistics_summary"
+    ]
+
+    assert summary["minimum_scale_mean"] == pytest.approx(
+        float(np.min(scale_profile["scale_mean"]))
+    )
+    assert summary["maximum_scale_mean"] == pytest.approx(
+        float(np.max(scale_profile["scale_mean"]))
+    )
+    assert summary["minimum_scale_rms"] == pytest.approx(
+        float(np.min(scale_profile["scale_rms"]))
+    )
+    assert summary["maximum_scale_rms"] == pytest.approx(
+        float(np.max(scale_profile["scale_rms"]))
+    )
+
+def test_build_scale_profile_metadata_reports_frame_statistics():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    summary = metadata[
+        "frame_statistics_summary"
+    ]
+
+    assert summary["minimum_frame_total"] == pytest.approx(
+        float(np.min(scale_profile["frame_total"]))
+    )
+    assert summary["maximum_frame_total"] == pytest.approx(
+        float(np.max(scale_profile["frame_total"]))
+    )
+    assert summary[
+        "minimum_centroid_frequency_hz"
+    ] == pytest.approx(
+        float(
+            np.min(
+                scale_profile[
+                    "frequency_centroid_hz"
+                ]
+            )
+        )
+    )
+    assert summary[
+        "maximum_centroid_frequency_hz"
+    ] == pytest.approx(
+        float(
+            np.max(
+                scale_profile[
+                    "frequency_centroid_hz"
+                ]
+            )
+        )
+    )
+
+def test_build_scale_profile_metadata_reports_zero_energy_frames():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    scale_profile["magnitude"][:, :2] = 0.0
+
+    scale_statistics = compute_scale_statistics(
+        scale_profile["magnitude"],
+    )
+    frame_statistics = compute_frame_statistics(
+        scale_profile["magnitude"],
+        scale_profile["frequencies"],
+    )
+
+    scale_profile = build_scale_profile(
+        frequencies=scale_profile["frequencies"],
+        magnitude=scale_profile["magnitude"],
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    scale_profile = validate_scale_profile_arrays(
+        scale_profile,
+    )
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    summary = metadata[
+        "frame_statistics_summary"
+    ]
+
+    assert summary["zero_energy_frame_count"] == 2
+    assert summary["zero_energy_frame_ratio"] == pytest.approx(
+        2.0 / MINIMUM_FRAMES
+    )
+
+def test_build_scale_profile_metadata_is_json_serializable():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    encoded = json.dumps(
+        metadata,
+    )
+
+    decoded = json.loads(
+        encoded,
+    )
+
+    assert decoded == metadata
