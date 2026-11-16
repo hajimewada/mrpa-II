@@ -2397,4 +2397,4 @@ def test_build_scale_profile_metadata_is_json_serializable():
         encoded,
     )
 
-    assert decoded == metadata
+    assert decoded == metadata"
