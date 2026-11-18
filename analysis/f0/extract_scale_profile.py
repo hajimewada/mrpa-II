@@ -18,9 +18,12 @@ language-specific interpretation are implemented in later milestones.
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Mapping
 from copy import deepcopy
 import json
+import sys
+
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -256,6 +259,7 @@ FRAME_STATISTICS_SUMMARY_REQUIRED_KEYS = (
 NUMBER_OF_SCALE_STATISTICS = 5
 NUMBER_OF_FRAME_STATISTICS = 7
 
+
 def load_cwt_outputs(
     input_path: Path,
     metadata_path: Path,
@@ -355,6 +359,7 @@ def load_cwt_outputs(
         frequencies,
         metadata,
     )
+
 
 def validate_loaded_cwt(
     coefficients: np.ndarray,
@@ -603,6 +608,7 @@ def validate_loaded_cwt(
         validated_metadata,
     )
 
+
 def compute_cwt_magnitude(
     coefficients: np.ndarray,
 ) -> Float64Array:
@@ -646,6 +652,7 @@ def compute_cwt_magnitude(
         )
 
     return magnitude
+
 
 def compute_scale_statistics(
     magnitude: Float64Array,
@@ -790,6 +797,7 @@ def compute_scale_statistics(
             )
 
     return statistics
+
 
 def compute_frame_statistics(
     magnitude: Float64Array,
@@ -1067,6 +1075,8 @@ def compute_frame_statistics(
             frequency_dispersion_hz
         ),
     }
+
+
 def build_scale_profile(
     *,
     frequencies: Float64Array,
@@ -1286,6 +1296,7 @@ def build_scale_profile(
         )
 
     return scale_profile
+
 
 def validate_scale_profile_arrays(
     scale_profile: ScaleProfile,
@@ -1649,6 +1660,7 @@ def validate_scale_profile_arrays(
 
     return validated_profile
 
+
 def build_scale_profile_metadata(
     *,
     source_cwt_metadata: CWTMetadata,
@@ -1880,6 +1892,7 @@ def build_scale_profile_metadata(
 
     return metadata
 
+
 def _require_exact_metadata_keys(
     mapping: Mapping[str, object],
     *,
@@ -2013,6 +2026,7 @@ def _require_metadata_string(
         )
 
     return validated_value
+
 
 def validate_scale_profile_metadata(
     metadata: object,
@@ -2715,3 +2729,320 @@ def validate_scale_profile_metadata(
         ) from error
 
     return validated_metadata
+
+
+#6.12
+def extract_scale_profile(
+    *,
+    coefficients: np.ndarray,
+    frequencies: np.ndarray,
+    source_cwt_metadata: dict[str, object],
+) -> tuple[
+    ScaleProfile,
+    ScaleProfileMetadata,
+]:
+    """Build a validated ScaleProfile from persisted CWT data.
+
+    Args:
+        coefficients:
+            Real-valued or complex-valued CWT coefficient matrix.
+
+        frequencies:
+            Physical frequency coordinates associated with the CWT
+            scale dimension.
+
+        source_cwt_metadata:
+            Decoded metadata associated with the source CWT.
+
+    Returns:
+        A tuple containing a validated ScaleProfile and its validated
+        JSON-compatible metadata.
+
+    Raises:
+        TypeError:
+            If an input or generated metadata value has an invalid
+            type.
+
+        KeyError:
+            If a required input or metadata field is absent.
+
+        ValueError:
+            If an input, generated feature, or metadata value violates
+            the ScaleProfile contract.
+    """
+
+    (
+        validated_coefficients,
+        validated_frequencies,
+        validated_source_metadata,
+    ) = validate_loaded_cwt(
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    )
+
+    magnitude = compute_cwt_magnitude(
+        validated_coefficients,
+    )
+
+    scale_statistics = compute_scale_statistics(
+        magnitude,
+    )
+
+    frame_statistics = compute_frame_statistics(
+        magnitude,
+        validated_frequencies,
+    )
+
+    scale_profile = build_scale_profile(
+        frequencies=validated_frequencies,
+        magnitude=magnitude,
+        scale_statistics=scale_statistics,
+        frame_statistics=frame_statistics,
+    )
+
+    validated_scale_profile = (
+        validate_scale_profile_arrays(
+            scale_profile,
+        )
+    )
+
+    scale_profile_metadata = (
+        build_scale_profile_metadata(
+            source_cwt_metadata=(
+                validated_source_metadata
+            ),
+            scale_profile=(
+                validated_scale_profile
+            ),
+        )
+    )
+
+    validated_scale_profile_metadata = (
+        validate_scale_profile_metadata(
+            scale_profile_metadata,
+            scale_profile=(
+                validated_scale_profile
+            ),
+        )
+    )
+
+    return (
+        validated_scale_profile,
+        validated_scale_profile_metadata,
+    )
+
+
+#6.13
+def save_scale_profile_outputs(
+    output_path: Path,
+    metadata_path: Path,
+    scale_profile: ScaleProfile,
+    metadata: ScaleProfileMetadata,
+) -> None:
+    """Validate and save ScaleProfile arrays and metadata."""
+
+    profile = validate_scale_profile_arrays(
+        scale_profile
+    )
+
+    validated_metadata = validate_scale_profile_metadata(
+        metadata,
+        scale_profile=profile,
+    )
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    metadata_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    arrays = {
+        key: profile[key]
+        for key in SCALE_PROFILE_REQUIRED_KEYS
+    }
+
+    np.savez_compressed(
+        output_path,
+        **arrays,
+    )
+
+    with metadata_path.open(
+        "w",
+        encoding="utf-8",
+    ) as stream:
+        json.dump(
+            validated_metadata,
+            stream,
+            indent=2,
+            sort_keys=True,
+        )
+        stream.write("\n")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the ScaleProfile command-line parser."""
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build ScaleProfile features from persisted CWT data."
+        )
+    )
+
+    parser.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--metadata-input",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--metadata-output",
+        type=Path,
+    )
+
+    return parser
+
+
+def default_scale_profile_metadata_path(
+    output_path: Path,
+) -> Path:
+    """Construct the default ScaleProfile metadata path."""
+
+    return output_path.with_name(
+        f"{output_path.stem}_metadata.json"
+    )
+
+
+def validate_arguments(
+    args: argparse.Namespace,
+) -> Path:
+    """Validate CLI paths and return the metadata output path."""
+
+    if not args.input.is_file():
+        raise FileNotFoundError(
+            f"CWT archive does not exist: {args.input}"
+        )
+
+    if not args.metadata_input.is_file():
+        raise FileNotFoundError(
+            "CWT metadata file does not exist: "
+            f"{args.metadata_input}"
+        )
+
+    if args.input.suffix.lower() != ".npz":
+        raise ValueError(
+            "--input must use the .npz extension"
+        )
+
+    if args.metadata_input.suffix.lower() != ".json":
+        raise ValueError(
+            "--metadata-input must use the .json extension"
+        )
+
+    if args.output.suffix.lower() != ".npz":
+        raise ValueError(
+            "--output must use the .npz extension"
+        )
+
+    metadata_output = (
+        args.metadata_output
+        if args.metadata_output is not None
+        else default_scale_profile_metadata_path(
+            args.output
+        )
+    )
+
+    if metadata_output.suffix.lower() != ".json":
+        raise ValueError(
+            "--metadata-output must use the .json extension"
+        )
+
+    paths = [
+        args.input.resolve(),
+        args.metadata_input.resolve(),
+        args.output.resolve(),
+        metadata_output.resolve(),
+    ]
+
+    if len(set(paths)) != len(paths):
+        raise ValueError(
+            "CLI input and output paths must be different"
+        )
+
+    return metadata_output
+
+
+def main() -> int:
+    """Run ScaleProfile extraction and persistence."""
+
+    parser = build_parser()
+    args = parser.parse_args()
+
+    try:
+        metadata_output = validate_arguments(args)
+
+        (
+            coefficients,
+            frequencies,
+            source_metadata,
+        ) = load_cwt_outputs(
+            args.input,
+            args.metadata_input,
+        )
+
+        profile, metadata = extract_scale_profile(
+            coefficients=coefficients,
+            frequencies=frequencies,
+            source_cwt_metadata=source_metadata,
+        )
+
+        save_scale_profile_outputs(
+            args.output,
+            metadata_output,
+            profile,
+            metadata,
+        )
+
+        print("ScaleProfile extraction: OK")
+        print(
+            f"scales: "
+            f"{profile['frequencies'].size}"
+        )
+        print(
+            f"frames: "
+            f"{profile['magnitude'].shape[1]}"
+        )
+        print(f"output: {args.output}")
+        print(f"metadata: {metadata_output}")
+
+        return 0
+
+    except (
+        FileNotFoundError,
+        KeyError,
+        TypeError,
+        ValueError,
+        OSError,
+        json.JSONDecodeError,
+    ) as error:
+        print(
+            f"error: {error}",
+            file=sys.stderr,
+        )
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

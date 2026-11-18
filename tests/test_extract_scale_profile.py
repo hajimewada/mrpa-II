@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 import pytest
+from argparse import Namespace
 
 from analysis.f0.extract_cwt import (
     CWTMetadata,
@@ -26,12 +29,17 @@ from analysis.f0.extract_scale_profile import (
     ZERO_ENERGY_POLICY,
     SCALE_PROFILE_REQUIRED_KEYS,
     SOURCE_CWT_REQUIRED_KEYS,
+    build_parser,
     build_scale_profile,
     build_scale_profile_metadata,
     compute_cwt_magnitude,
     compute_frame_statistics,
     compute_scale_statistics,
+    default_scale_profile_metadata_path,
+    extract_scale_profile,
     load_cwt_outputs,
+    save_scale_profile_outputs,
+    validate_arguments,
     validate_loaded_cwt,
     validate_scale_profile_arrays,
     validate_scale_profile_metadata,
@@ -104,6 +112,7 @@ def create_persisted_cwt_inputs(
         metadata,
     )
 
+
 def test_load_cwt_outputs_loads_persisted_data(
     tmp_path: Path,
 ) -> None:
@@ -136,6 +145,7 @@ def test_load_cwt_outputs_loads_persisted_data(
 
     assert metadata == expected_metadata
 
+
 def test_load_cwt_outputs_returns_independent_arrays(
     tmp_path: Path,
 ) -> None:
@@ -160,6 +170,7 @@ def test_load_cwt_outputs_returns_independent_arrays(
     assert expected_coefficients[0, 0] != -999.0
     assert expected_frequencies[0] != -999.0
 
+
 def test_load_cwt_outputs_rejects_missing_archive(
     tmp_path: Path,
 ) -> None:
@@ -178,6 +189,7 @@ def test_load_cwt_outputs_rejects_missing_archive(
             tmp_path / "missing.npz",
             metadata_path,
         )
+
 
 def test_load_cwt_outputs_rejects_missing_metadata(
     tmp_path: Path,
@@ -198,6 +210,7 @@ def test_load_cwt_outputs_rejects_missing_metadata(
             input_path,
             tmp_path / "missing.json",
         )
+
 
 @pytest.mark.parametrize(
     "missing_key",
@@ -236,6 +249,7 @@ def test_load_cwt_outputs_rejects_missing_archive_key(
             metadata_path,
         )
 
+
 def test_load_cwt_outputs_rejects_invalid_json(
     tmp_path: Path,
 ) -> None:
@@ -269,6 +283,7 @@ from analysis.f0.extract_scale_profile import (
     load_cwt_outputs,
     validate_loaded_cwt,
 )
+
 
 def create_valid_loaded_cwt() -> tuple[
     np.ndarray,
@@ -341,6 +356,7 @@ def create_valid_loaded_cwt() -> tuple[
         metadata,
     )
 
+
 def test_validate_loaded_cwt_accepts_valid_input():
     coefficients, frequencies, metadata = (
         create_valid_loaded_cwt()
@@ -368,6 +384,7 @@ def test_validate_loaded_cwt_accepts_valid_input():
     assert validated_frequencies.dtype == np.float64
     assert validated_metadata == metadata
 
+
 def test_validate_loaded_cwt_returns_independent_copies():
     coefficients, frequencies, metadata = (
         create_valid_loaded_cwt()
@@ -394,6 +411,7 @@ def test_validate_loaded_cwt_returns_independent_copies():
         == MINIMUM_FRAMES
     )
 
+
 def test_validate_loaded_cwt_accepts_complex_coefficients():
     coefficients, frequencies, metadata = (
         create_valid_loaded_cwt()
@@ -418,6 +436,7 @@ def test_validate_loaded_cwt_accepts_complex_coefficients():
         complex_coefficients,
     )
 
+
 def test_validate_loaded_cwt_rejects_non_2d_coefficients():
     _, frequencies, metadata = create_valid_loaded_cwt()
 
@@ -430,6 +449,7 @@ def test_validate_loaded_cwt_rejects_non_2d_coefficients():
             frequencies,
             metadata,
         )
+
 
 @pytest.mark.parametrize(
     "coefficients",
@@ -464,6 +484,7 @@ def test_validate_loaded_cwt_rejects_invalid_coefficient_dtype(
             metadata,
         )
 
+
 def test_validate_loaded_cwt_rejects_too_few_scales():
     _, _, metadata = create_valid_loaded_cwt()
 
@@ -486,6 +507,7 @@ def test_validate_loaded_cwt_rejects_too_few_scales():
             frequencies,
             metadata,
         )
+
 
 def test_validate_loaded_cwt_rejects_too_few_frames():
     coefficients, frequencies, metadata = (
@@ -529,6 +551,7 @@ def test_validate_loaded_cwt_rejects_nonfinite_coefficients(
             metadata,
         )
 
+
 def test_validate_loaded_cwt_rejects_non_1d_frequencies():
     coefficients, frequencies, metadata = (
         create_valid_loaded_cwt()
@@ -543,6 +566,7 @@ def test_validate_loaded_cwt_rejects_non_1d_frequencies():
             frequencies.reshape(-1, 1),
             metadata,
         )
+
 
 def test_validate_loaded_cwt_rejects_frequency_count_mismatch():
     coefficients, _, metadata = create_valid_loaded_cwt()
@@ -559,6 +583,7 @@ def test_validate_loaded_cwt_rejects_frequency_count_mismatch():
             ),
             metadata,
         )
+
 
 @pytest.mark.parametrize(
     "invalid_value",
@@ -587,6 +612,7 @@ def test_validate_loaded_cwt_rejects_nonfinite_frequencies(
             metadata,
         )
 
+
 @pytest.mark.parametrize(
     "invalid_value",
     [
@@ -613,6 +639,7 @@ def test_validate_loaded_cwt_rejects_nonpositive_frequencies(
             metadata,
         )
 
+
 def test_validate_loaded_cwt_rejects_nondecreasing_frequencies():
     coefficients, _, metadata = create_valid_loaded_cwt()
 
@@ -631,6 +658,7 @@ def test_validate_loaded_cwt_rejects_nondecreasing_frequencies():
             metadata,
         )
 
+
 def test_validate_loaded_cwt_rejects_non_dictionary_metadata():
     coefficients, frequencies, _ = create_valid_loaded_cwt()
 
@@ -643,6 +671,7 @@ def test_validate_loaded_cwt_rejects_non_dictionary_metadata():
             frequencies,
             [],  # type: ignore[arg-type]
         )
+
 
 def test_validate_loaded_cwt_rejects_metadata_scale_count_mismatch():
     coefficients, frequencies, metadata = (
@@ -661,6 +690,7 @@ def test_validate_loaded_cwt_rejects_metadata_scale_count_mismatch():
             frequencies,
             metadata,
         )
+
 
 def test_validate_loaded_cwt_rejects_metadata_frame_count_mismatch():
     coefficients, frequencies, metadata = (
@@ -681,6 +711,7 @@ def test_validate_loaded_cwt_rejects_metadata_frame_count_mismatch():
             metadata,
         )
 
+
 def test_validate_loaded_cwt_rejects_minimum_frequency_mismatch():
     coefficients, frequencies, metadata = (
         create_valid_loaded_cwt()
@@ -699,6 +730,7 @@ def test_validate_loaded_cwt_rejects_minimum_frequency_mismatch():
             metadata,
         )
 
+
 def test_validate_loaded_cwt_rejects_maximum_frequency_mismatch():
     coefficients, frequencies, metadata = (
         create_valid_loaded_cwt()
@@ -716,6 +748,7 @@ def test_validate_loaded_cwt_rejects_maximum_frequency_mismatch():
             frequencies,
             metadata,
         )
+
 
 def test_compute_cwt_magnitude_handles_real_coefficients():
     coefficients = np.array(
@@ -742,6 +775,7 @@ def test_compute_cwt_magnitude_handles_real_coefficients():
         magnitude,
         expected,
     )
+
 
 def test_compute_cwt_magnitude_handles_complex_coefficients():
     coefficients = np.array(
@@ -771,6 +805,7 @@ def test_compute_cwt_magnitude_handles_complex_coefficients():
         atol=0.0,
     )
 
+
 def test_compute_cwt_magnitude_preserves_shape_and_uses_float64():
     coefficients = np.ones(
         (3, MINIMUM_FRAMES),
@@ -783,6 +818,7 @@ def test_compute_cwt_magnitude_preserves_shape_and_uses_float64():
 
     assert magnitude.shape == coefficients.shape
     assert magnitude.dtype == np.float64
+
 
 def test_compute_cwt_magnitude_returns_finite_nonnegative_values():
     coefficients = np.linspace(
@@ -801,6 +837,7 @@ def test_compute_cwt_magnitude_returns_finite_nonnegative_values():
 
     assert np.all(np.isfinite(magnitude))
     assert np.all(magnitude >= 0.0)
+
 
 def test_compute_cwt_magnitude_returns_independent_array():
     coefficients = np.array(
@@ -829,6 +866,7 @@ def test_compute_cwt_magnitude_returns_independent_array():
         coefficients,
     )
 
+
 def test_compute_cwt_magnitude_accepts_zero_coefficients():
     coefficients = np.zeros(
         (3, MINIMUM_FRAMES),
@@ -843,6 +881,7 @@ def test_compute_cwt_magnitude_accepts_zero_coefficients():
         magnitude,
         np.zeros_like(magnitude),
     )
+
 
 def test_compute_cwt_magnitude_rejects_nonfinite_result():
     maximum = np.finfo(np.float64).max
@@ -870,6 +909,7 @@ def test_compute_cwt_magnitude_rejects_nonfinite_result():
             compute_cwt_magnitude(
                 coefficients,
             )
+
 
 def test_compute_scale_statistics_returns_expected_values():
     magnitude = np.array(
@@ -922,6 +962,7 @@ def test_compute_scale_statistics_returns_expected_values():
         ),
     )
 
+
 def test_compute_scale_statistics_returns_expected_schema():
     magnitude = np.ones(
         (3, MINIMUM_FRAMES),
@@ -944,6 +985,7 @@ def test_compute_scale_statistics_returns_expected_schema():
         assert values.shape == (3,)
         assert values.dtype == np.float64
 
+
 def test_compute_scale_statistics_accepts_zero_magnitude():
     magnitude = np.zeros(
         (3, MINIMUM_FRAMES),
@@ -959,6 +1001,7 @@ def test_compute_scale_statistics_accepts_zero_magnitude():
             values,
             np.zeros(3),
         )
+
 
 def test_compute_scale_statistics_returns_finite_nonnegative_values():
     magnitude = np.linspace(
@@ -978,6 +1021,7 @@ def test_compute_scale_statistics_returns_finite_nonnegative_values():
     for values in statistics.values():
         assert np.all(np.isfinite(values))
         assert np.all(values >= 0.0)
+
 
 def test_compute_scale_statistics_does_not_modify_input():
     magnitude = np.arange(
@@ -1005,6 +1049,7 @@ def test_compute_scale_statistics_does_not_modify_input():
             magnitude,
         )
 
+
 def test_compute_scale_statistics_rejects_non_2d_magnitude():
     with pytest.raises(
         ValueError,
@@ -1016,6 +1061,7 @@ def test_compute_scale_statistics_rejects_non_2d_magnitude():
                 dtype=np.float64,
             )
         )
+
 
 @pytest.mark.parametrize(
     "shape",
@@ -1041,6 +1087,7 @@ def test_compute_scale_statistics_rejects_empty_axis(
                 dtype=np.float64,
             )
         )
+
 
 @pytest.mark.parametrize(
     "invalid_value",
@@ -1068,6 +1115,7 @@ def test_compute_scale_statistics_rejects_nonfinite_magnitude(
             magnitude,
         )
 
+
 def test_compute_scale_statistics_rejects_negative_magnitude():
     magnitude = np.ones(
         (3, MINIMUM_FRAMES),
@@ -1083,6 +1131,7 @@ def test_compute_scale_statistics_rejects_negative_magnitude():
         compute_scale_statistics(
             magnitude,
         )
+
 
 def test_compute_scale_statistics_rejects_nonfinite_rms():
     magnitude_value = (
@@ -1105,6 +1154,7 @@ def test_compute_scale_statistics_rejects_nonfinite_rms():
         compute_scale_statistics(
             magnitude,
         )
+
 
 def test_compute_frame_statistics_returns_expected_basic_values():
     magnitude = np.array(
@@ -1147,6 +1197,7 @@ def test_compute_frame_statistics_returns_expected_basic_values():
         np.array([3.0, 0.0, 4.0]),
     )
 
+
 def test_compute_frame_statistics_reports_dominant_scale():
     magnitude = np.array(
         [
@@ -1180,6 +1231,7 @@ def test_compute_frame_statistics_reports_dominant_scale():
         np.array([5.0, 20.0, 20.0]),
     )
 
+
 def test_compute_frame_statistics_reports_centroid_and_dispersion():
     magnitude = np.array(
         [
@@ -1210,6 +1262,7 @@ def test_compute_frame_statistics_reports_centroid_and_dispersion():
     ][0] == pytest.approx(
         5.0
     )
+
 
 def test_compute_frame_statistics_applies_zero_energy_policy():
     magnitude = np.zeros(
@@ -1262,6 +1315,7 @@ def test_compute_frame_statistics_applies_zero_energy_policy():
         np.zeros(4),
     )
 
+
 def test_compute_frame_statistics_returns_expected_schema():
     magnitude = np.ones(
         (3, MINIMUM_FRAMES),
@@ -1297,6 +1351,7 @@ def test_compute_frame_statistics_returns_expected_schema():
             assert values.dtype == np.int64
         else:
             assert values.dtype == np.float64
+
 
 def test_compute_frame_statistics_does_not_modify_inputs():
     magnitude = np.arange(
@@ -1339,6 +1394,7 @@ def test_compute_frame_statistics_does_not_modify_inputs():
             frequencies,
         )
 
+
 def test_compute_frame_statistics_rejects_non_2d_magnitude():
     with pytest.raises(
         ValueError,
@@ -1354,6 +1410,7 @@ def test_compute_frame_statistics_rejects_non_2d_magnitude():
                 dtype=np.float64,
             ),
         )
+
 
 @pytest.mark.parametrize(
     "shape",
@@ -1388,6 +1445,7 @@ def test_compute_frame_statistics_rejects_empty_axis(
             frequencies,
         )
 
+
 @pytest.mark.parametrize(
     "invalid_value",
     [
@@ -1417,6 +1475,7 @@ def test_compute_frame_statistics_rejects_nonfinite_magnitude(
             ),
         )
 
+
 def test_compute_frame_statistics_rejects_negative_magnitude():
     magnitude = np.ones(
         (3, MINIMUM_FRAMES),
@@ -1436,6 +1495,7 @@ def test_compute_frame_statistics_rejects_negative_magnitude():
             ),
         )
 
+
 def test_compute_frame_statistics_rejects_frequency_count_mismatch():
     with pytest.raises(
         ValueError,
@@ -1452,6 +1512,7 @@ def test_compute_frame_statistics_rejects_frequency_count_mismatch():
             ),
         )
 
+
 def test_compute_frame_statistics_rejects_nondecreasing_frequencies():
     with pytest.raises(
         ValueError,
@@ -1467,6 +1528,7 @@ def test_compute_frame_statistics_rejects_nondecreasing_frequencies():
                 dtype=np.float64,
             ),
         )
+
 
 def create_scale_profile_components() -> tuple[
     np.ndarray,
@@ -1502,6 +1564,7 @@ def create_scale_profile_components() -> tuple[
         scale_statistics,
         frame_statistics,
     )
+
 
 def test_build_scale_profile_returns_required_arrays():
     (
@@ -1543,6 +1606,7 @@ def test_build_scale_profile_returns_required_arrays():
             scale_profile[key],
             expected,
         )
+
 
 def test_build_scale_profile_preserves_shapes_and_dtypes():
     (
@@ -1598,6 +1662,7 @@ def test_build_scale_profile_preserves_shapes_and_dtypes():
         "dominant_scale_index"
     ].dtype == np.int64
 
+
 def test_build_scale_profile_returns_independent_arrays():
     (
         frequencies,
@@ -1638,6 +1703,7 @@ def test_build_scale_profile_returns_independent_arrays():
         == original_frame_total
     )
 
+
 def test_build_scale_profile_rejects_frequency_shape_mismatch():
     (
         _,
@@ -1659,6 +1725,7 @@ def test_build_scale_profile_rejects_frequency_shape_mismatch():
             scale_statistics=scale_statistics,
             frame_statistics=frame_statistics,
         )
+
 
 def test_build_scale_profile_rejects_scale_statistic_shape():
     (
@@ -1751,6 +1818,7 @@ def test_build_scale_profile_rejects_missing_statistic(
             frame_statistics=frame_statistics,
         )
 
+
 def test_validate_scale_profile_arrays_accepts_valid_profile():
     (
         frequencies,
@@ -1780,6 +1848,7 @@ def test_validate_scale_profile_arrays_accepts_valid_profile():
             profile[key],
         )
 
+
 def test_validate_scale_profile_arrays_returns_independent_copies():
     (
         frequencies,
@@ -1807,6 +1876,7 @@ def test_validate_scale_profile_arrays_returns_independent_copies():
     assert profile["magnitude"][0, 0] != -999.0
     assert profile["frame_total"][0] != -999.0
 
+
 def test_validate_scale_profile_arrays_rejects_missing_key():
     (
         frequencies,
@@ -1832,6 +1902,7 @@ def test_validate_scale_profile_arrays_rejects_missing_key():
             profile,
         )
 
+
 def test_validate_scale_profile_arrays_rejects_unexpected_key():
     (
         frequencies,
@@ -1856,6 +1927,7 @@ def test_validate_scale_profile_arrays_rejects_unexpected_key():
         validate_scale_profile_arrays(
             profile,
         )
+
 
 @pytest.mark.parametrize(
     "key",
@@ -1892,6 +1964,7 @@ def test_validate_scale_profile_arrays_rejects_nonfinite_value(
         validate_scale_profile_arrays(
             profile,
         )
+
 
 @pytest.mark.parametrize(
     "key",
@@ -1930,6 +2003,7 @@ def test_validate_scale_profile_arrays_rejects_negative_value(
             profile,
         )
 
+
 def test_validate_scale_profile_arrays_rejects_noninteger_index():
     (
         frequencies,
@@ -1958,6 +2032,7 @@ def test_validate_scale_profile_arrays_rejects_noninteger_index():
         validate_scale_profile_arrays(
             profile,
         )
+
 
 def test_validate_scale_profile_arrays_rejects_out_of_range_index():
     (
@@ -2010,6 +2085,7 @@ def test_validate_scale_profile_arrays_rejects_dominant_frequency_mismatch():
         validate_scale_profile_arrays(
             profile,
         )
+
 
 @pytest.mark.parametrize(
     "invalid_centroid",
@@ -4586,3 +4662,727 @@ def test_validate_scale_profile_metadata_rejects_non_json_value():
             metadata,
             scale_profile=scale_profile,
         )
+
+#6.12
+def test_extract_scale_profile_returns_valid_result():
+    (
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    scale_profile, metadata = extract_scale_profile(
+        coefficients=coefficients,
+        frequencies=frequencies,
+        source_cwt_metadata=source_cwt_metadata,
+    )
+
+    assert set(scale_profile) == set(
+        SCALE_PROFILE_REQUIRED_KEYS
+    )
+
+    assert set(metadata) == {
+        "format_version",
+        "source_cwt",
+        "feature_configuration",
+        "shape_summary",
+        "scale_statistics_summary",
+        "frame_statistics_summary",
+    }
+
+    assert scale_profile["magnitude"].shape == (
+        frequencies.size,
+        coefficients.shape[1],
+    )
+
+    assert metadata["shape_summary"][
+        "number_of_scales"
+    ] == frequencies.size
+
+    assert metadata["shape_summary"][
+        "number_of_frames"
+    ] == coefficients.shape[1]
+
+def test_extract_scale_profile_computes_expected_features():
+    (
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    scale_profile, _ = extract_scale_profile(
+        coefficients=coefficients,
+        frequencies=frequencies,
+        source_cwt_metadata=source_cwt_metadata,
+    )
+
+    expected_magnitude = np.abs(
+        coefficients
+    ).astype(
+        np.float64
+    )
+
+    np.testing.assert_array_equal(
+        scale_profile["magnitude"],
+        expected_magnitude,
+    )
+
+    np.testing.assert_allclose(
+        scale_profile["scale_mean"],
+        np.mean(
+            expected_magnitude,
+            axis=1,
+        ),
+    )
+
+    np.testing.assert_allclose(
+        scale_profile["frame_total"],
+        np.sum(
+            expected_magnitude,
+            axis=0,
+        ),
+    )
+
+def test_extract_scale_profile_accepts_complex_coefficients():
+    (
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    complex_coefficients = (
+        coefficients.astype(np.complex128)
+        + 1.0j
+    )
+
+    scale_profile, _ = extract_scale_profile(
+        coefficients=complex_coefficients,
+        frequencies=frequencies,
+        source_cwt_metadata=source_cwt_metadata,
+    )
+
+    expected_magnitude = np.abs(
+        complex_coefficients
+    ).astype(
+        np.float64
+    )
+
+    np.testing.assert_allclose(
+        scale_profile["magnitude"],
+        expected_magnitude,
+    )
+
+    assert (
+        scale_profile["magnitude"].dtype
+        == np.float64
+    )
+
+
+def test_extract_scale_profile_handles_zero_energy_frames():
+    (
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    coefficients[:, :2] = 0.0
+
+    scale_profile, metadata = extract_scale_profile(
+        coefficients=coefficients,
+        frequencies=frequencies,
+        source_cwt_metadata=source_cwt_metadata,
+    )
+
+    np.testing.assert_array_equal(
+        scale_profile[
+            "frequency_centroid_hz"
+        ][:2],
+        np.zeros(2),
+    )
+
+    np.testing.assert_array_equal(
+        scale_profile[
+            "frequency_dispersion_hz"
+        ][:2],
+        np.zeros(2),
+    )
+
+    frame_summary = metadata[
+        "frame_statistics_summary"
+    ]
+
+    assert (
+        frame_summary[
+            "zero_energy_frame_count"
+        ]
+        == 2
+    )
+
+    assert frame_summary[
+        "zero_energy_frame_ratio"
+    ] == pytest.approx(
+        2.0 / coefficients.shape[1]
+    )
+
+
+def test_extract_scale_profile_returns_independent_outputs():
+    (
+        coefficients,
+        frequencies,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    original_coefficients = coefficients.copy()
+    original_frequencies = frequencies.copy()
+    original_frame_count = source_cwt_metadata[
+        "cwt_summary"
+    ]["n_frames"]
+
+    scale_profile, metadata = extract_scale_profile(
+        coefficients=coefficients,
+        frequencies=frequencies,
+        source_cwt_metadata=source_cwt_metadata,
+    )
+
+    scale_profile["magnitude"][0, 0] = 999.0
+    scale_profile["frequencies"][0] = 999.0
+    metadata["shape_summary"][
+        "number_of_frames"
+    ] = 999
+
+    np.testing.assert_array_equal(
+        coefficients,
+        original_coefficients,
+    )
+
+    np.testing.assert_array_equal(
+        frequencies,
+        original_frequencies,
+    )
+
+    assert source_cwt_metadata[
+        "cwt_summary"
+    ]["n_frames"] == original_frame_count
+
+
+def test_extract_scale_profile_propagates_loaded_cwt_validation_error():
+    (
+        coefficients,
+        _,
+        source_cwt_metadata,
+    ) = create_valid_loaded_cwt()
+
+    invalid_frequencies = np.array(
+        [20.0, 5.0, 10.0],
+        dtype=np.float64,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="strictly decreasing",
+    ):
+        extract_scale_profile(
+            coefficients=coefficients,
+            frequencies=invalid_frequencies,
+            source_cwt_metadata=source_cwt_metadata,
+        )
+
+
+#6.13
+def test_save_scale_profile_outputs_creates_files(
+    tmp_path: Path,
+) -> None:
+    source_metadata, profile = (
+        create_scale_profile_metadata_inputs()
+    )
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_metadata,
+        scale_profile=profile,
+    )
+
+    output_path = tmp_path / "scale_profile.npz"
+    metadata_path = tmp_path / "scale_profile_metadata.json"
+
+    save_scale_profile_outputs(
+        output_path,
+        metadata_path,
+        profile,
+        metadata,
+    )
+
+    assert output_path.is_file()
+    assert metadata_path.is_file()
+
+
+def test_save_scale_profile_outputs_persists_arrays(
+    tmp_path: Path,
+) -> None:
+    source_metadata, profile = (
+        create_scale_profile_metadata_inputs()
+    )
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_metadata,
+        scale_profile=profile,
+    )
+
+    output_path = tmp_path / "scale_profile.npz"
+    metadata_path = tmp_path / "metadata.json"
+
+    save_scale_profile_outputs(
+        output_path,
+        metadata_path,
+        profile,
+        metadata,
+    )
+
+    with np.load(
+        output_path,
+        allow_pickle=False,
+    ) as archive:
+        assert set(archive.files) == set(
+            SCALE_PROFILE_REQUIRED_KEYS
+        )
+
+        for key in SCALE_PROFILE_REQUIRED_KEYS:
+            np.testing.assert_array_equal(
+                archive[key],
+                profile[key],
+            )
+
+
+def test_save_scale_profile_outputs_persists_metadata(
+    tmp_path: Path,
+) -> None:
+    source_metadata, profile = (
+        create_scale_profile_metadata_inputs()
+    )
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_metadata,
+        scale_profile=profile,
+    )
+
+    output_path = tmp_path / "scale_profile.npz"
+    metadata_path = tmp_path / "metadata.json"
+
+    save_scale_profile_outputs(
+        output_path,
+        metadata_path,
+        profile,
+        metadata,
+    )
+
+    loaded_metadata = json.loads(
+        metadata_path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    assert loaded_metadata == metadata
+    assert metadata_path.read_bytes().endswith(b"\n")
+
+
+def test_save_scale_profile_outputs_creates_parent_directories(
+    tmp_path: Path,
+) -> None:
+    source_metadata, profile = (
+        create_scale_profile_metadata_inputs()
+    )
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_metadata,
+        scale_profile=profile,
+    )
+
+    output_path = tmp_path / "arrays" / "scale_profile.npz"
+    metadata_path = tmp_path / "metadata" / "profile.json"
+
+    save_scale_profile_outputs(
+        output_path,
+        metadata_path,
+        profile,
+        metadata,
+    )
+
+    assert output_path.is_file()
+    assert metadata_path.is_file()
+
+
+def test_save_scale_profile_outputs_rejects_invalid_profile(
+    tmp_path: Path,
+) -> None:
+    source_metadata, profile = (
+        create_scale_profile_metadata_inputs()
+    )
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_metadata,
+        scale_profile=profile,
+    )
+
+    profile["magnitude"][0, 0] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match="non-negative",
+    ):
+        save_scale_profile_outputs(
+            tmp_path / "scale_profile.npz",
+            tmp_path / "metadata.json",
+            profile,
+            metadata,
+        )
+
+#6.14
+def make_scale_profile_cli_args(
+    tmp_path: Path,
+    metadata_output: Path | None = None,
+) -> Namespace:
+    input_path = tmp_path / "cwt.npz"
+    metadata_input = tmp_path / "cwt_metadata.json"
+
+    np.savez_compressed(
+        input_path,
+        coefficients=np.zeros((2, MINIMUM_FRAMES)),
+        frequencies=np.array([20.0, 10.0]),
+    )
+
+    metadata_input.write_text(
+        "{}",
+        encoding="utf-8",
+    )
+
+    return Namespace(
+        input=input_path,
+        metadata_input=metadata_input,
+        output=tmp_path / "scale_profile.npz",
+        metadata_output=metadata_output,
+    )
+
+
+def test_build_parser_accepts_required_arguments():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "--input",
+            "cwt.npz",
+            "--metadata-input",
+            "cwt_metadata.json",
+            "--output",
+            "scale_profile.npz",
+        ]
+    )
+
+    assert args.input == Path("cwt.npz")
+    assert args.metadata_input == Path(
+        "cwt_metadata.json"
+    )
+    assert args.output == Path(
+        "scale_profile.npz"
+    )
+    assert args.metadata_output is None
+
+
+def test_default_scale_profile_metadata_path():
+    result = default_scale_profile_metadata_path(
+        Path("results/scale_profile.npz")
+    )
+
+    assert result == Path(
+        "results/scale_profile_metadata.json"
+    )
+
+
+def test_validate_arguments_returns_default_metadata_path(
+    tmp_path: Path,
+):
+    args = make_scale_profile_cli_args(
+        tmp_path
+    )
+
+    result = validate_arguments(args)
+
+    assert result == (
+        tmp_path / "scale_profile_metadata.json"
+    )
+
+
+def test_validate_arguments_preserves_explicit_metadata_path(
+    tmp_path: Path,
+):
+    metadata_output = (
+        tmp_path / "custom_metadata.json"
+    )
+
+    args = make_scale_profile_cli_args(
+        tmp_path,
+        metadata_output=metadata_output,
+    )
+
+    result = validate_arguments(args)
+
+    assert result == metadata_output
+
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "filename",
+        "expected_message",
+    ),
+    [
+        (
+            "input",
+            "cwt.npy",
+            "--input must use the .npz extension",
+        ),
+        (
+            "metadata_input",
+            "metadata.txt",
+            "--metadata-input must use the .json extension",
+        ),
+        (
+            "output",
+            "profile.npy",
+            "--output must use the .npz extension",
+        ),
+        (
+            "metadata_output",
+            "profile.txt",
+            "--metadata-output must use the .json extension",
+        ),
+    ],
+)
+def test_validate_arguments_rejects_invalid_suffix(
+    tmp_path: Path,
+    field_name: str,
+    filename: str,
+    expected_message: str,
+):
+    args = make_scale_profile_cli_args(
+        tmp_path
+    )
+
+    invalid_path = tmp_path / filename
+
+    if field_name == "input":
+        args.input.rename(invalid_path)
+    elif field_name == "metadata_input":
+        args.metadata_input.rename(
+            invalid_path
+        )
+
+    setattr(
+        args,
+        field_name,
+        invalid_path,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=expected_message,
+    ):
+        validate_arguments(args)
+
+
+def test_validate_arguments_rejects_path_collision(
+    tmp_path: Path,
+):
+    args = make_scale_profile_cli_args(
+        tmp_path
+    )
+
+    args.output = args.input
+
+    with pytest.raises(
+        ValueError,
+        match="paths must be different",
+    ):
+        validate_arguments(args)
+
+
+#6.16
+def create_scale_profile_cli_inputs(
+    tmp_path: Path,
+) -> tuple[Path, Path]:
+    coefficients, frequencies, metadata = (
+        create_valid_loaded_cwt()
+    )
+
+    input_path = tmp_path / "cwt.npz"
+    metadata_path = tmp_path / "cwt_metadata.json"
+
+    np.savez_compressed(
+        input_path,
+        coefficients=coefficients,
+        frequencies=frequencies,
+    )
+
+    metadata_path.write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    return input_path, metadata_path
+
+
+def test_scale_profile_cli_creates_outputs(
+    tmp_path: Path,
+) -> None:
+    input_path, metadata_input = (
+        create_scale_profile_cli_inputs(tmp_path)
+    )
+
+    output_path = tmp_path / "scale_profile.npz"
+    metadata_output = tmp_path / "profile.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "analysis.f0.extract_scale_profile",
+            "--input",
+            str(input_path),
+            "--metadata-input",
+            str(metadata_input),
+            "--output",
+            str(output_path),
+            "--metadata-output",
+            str(metadata_output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "ScaleProfile extraction: OK" in result.stdout
+    assert output_path.is_file()
+    assert metadata_output.is_file()
+
+
+def test_scale_profile_cli_persists_valid_outputs(
+    tmp_path: Path,
+) -> None:
+    input_path, metadata_input = (
+        create_scale_profile_cli_inputs(tmp_path)
+    )
+
+    output_path = tmp_path / "scale_profile.npz"
+    metadata_output = tmp_path / "profile.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "analysis.f0.extract_scale_profile",
+            "--input",
+            str(input_path),
+            "--metadata-input",
+            str(metadata_input),
+            "--output",
+            str(output_path),
+            "--metadata-output",
+            str(metadata_output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+
+    with np.load(
+        output_path,
+        allow_pickle=False,
+    ) as archive:
+        assert set(archive.files) == set(
+            SCALE_PROFILE_REQUIRED_KEYS
+        )
+
+        profile = {
+            key: np.array(archive[key], copy=True)
+            for key in SCALE_PROFILE_REQUIRED_KEYS
+        }
+
+    metadata = json.loads(
+        metadata_output.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    validated_profile = validate_scale_profile_arrays(
+        profile
+    )
+
+    validate_scale_profile_metadata(
+        metadata,
+        scale_profile=validated_profile,
+    )
+
+
+def test_scale_profile_cli_uses_default_metadata_path(
+    tmp_path: Path,
+) -> None:
+    input_path, metadata_input = (
+        create_scale_profile_cli_inputs(tmp_path)
+    )
+
+    output_path = tmp_path / "scale_profile.npz"
+    expected_metadata = (
+        tmp_path / "scale_profile_metadata.json"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "analysis.f0.extract_scale_profile",
+            "--input",
+            str(input_path),
+            "--metadata-input",
+            str(metadata_input),
+            "--output",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert output_path.is_file()
+    assert expected_metadata.is_file()
+
+
+def test_scale_profile_cli_rejects_missing_input(
+    tmp_path: Path,
+) -> None:
+    metadata_input = tmp_path / "metadata.json"
+    metadata_input.write_text(
+        "{}",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "analysis.f0.extract_scale_profile",
+            "--input",
+            str(tmp_path / "missing.npz"),
+            "--metadata-input",
+            str(metadata_input),
+            "--output",
+            str(tmp_path / "profile.npz"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "CWT archive does not exist" in result.stderr
