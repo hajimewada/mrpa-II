@@ -309,6 +309,22 @@ Implemented functionality includes:
 - CLI persistence integration;
 - end-to-end persistence acceptance testing.
 
+#### Milestone 6: CWT feature extraction and ScaleProfile construction
+
+Implemented functionality includes:
+
+- scale-level statistical feature extraction;
+- frame-level statistical feature extraction;
+- dominant-frequency, frequency-centroid, and frequency-dispersion computation;
+- zero-energy frame handling;
+- ScaleProfile construction and array validation;
+- versioned metadata construction and validation;
+- compressed ScaleProfile archive generation;
+- JSON metadata persistence;
+- integrated extraction orchestration;
+- command-line integration;
+- end-to-end CLI acceptance testing.
+
 ## Repository Status
 
 MRPA-II is in active implementation.
