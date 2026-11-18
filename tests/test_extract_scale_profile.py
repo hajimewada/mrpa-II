@@ -9,6 +9,8 @@ import pytest
 from analysis.f0.extract_cwt import (
     CWTMetadata,
     MINIMUM_FRAMES,
+    MINIMUM_PRECISION,
+    build_cwt_metadata,
     validate_cwt_metadata,
 )
 
@@ -32,6 +34,7 @@ from analysis.f0.extract_scale_profile import (
     load_cwt_outputs,
     validate_loaded_cwt,
     validate_scale_profile_arrays,
+    validate_scale_profile_metadata,
 )
 
 
@@ -2397,4 +2400,2189 @@ def test_build_scale_profile_metadata_is_json_serializable():
         encoded,
     )
 
-    assert decoded == metadata"
+    assert decoded == metadata
+
+def test_validate_scale_profile_metadata_accepts_valid_metadata():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    validated_metadata = validate_scale_profile_metadata(
+        metadata,
+        scale_profile=scale_profile,
+    )
+
+    assert validated_metadata == metadata
+
+    assert (
+        validated_metadata["format_version"]
+        == SCALE_PROFILE_FORMAT_VERSION
+    )
+
+    assert (
+        validated_metadata["shape_summary"]
+        ["number_of_scales"]
+        == scale_profile["frequencies"].size
+    )
+
+    assert (
+        validated_metadata["shape_summary"]
+        ["number_of_frames"]
+        == scale_profile["magnitude"].shape[1]
+    )
+
+    assert (
+        validated_metadata["source_cwt"]
+        ["minimum_frequency_hz"]
+        == pytest.approx(
+            float(
+                np.min(
+                    scale_profile["frequencies"]
+                )
+            )
+        )
+    )
+
+    assert (
+        validated_metadata["source_cwt"]
+        ["maximum_frequency_hz"]
+        == pytest.approx(
+            float(
+                np.max(
+                    scale_profile["frequencies"]
+                )
+            )
+        )
+    )
+
+    assert validated_metadata is not metadata
+
+    assert (
+        validated_metadata["source_cwt"]
+        is not metadata["source_cwt"]
+    )
+
+    assert (
+        validated_metadata["shape_summary"]
+        is not metadata["shape_summary"]
+    )
+
+    validated_metadata["shape_summary"][
+        "number_of_frames"
+    ] = 999
+
+    assert (
+        metadata["shape_summary"]["number_of_frames"]
+        == scale_profile["magnitude"].shape[1]
+    )
+
+def test_validate_scale_profile_metadata_returns_independent_copy():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    validated_metadata = validate_scale_profile_metadata(
+        metadata,
+        scale_profile=scale_profile,
+    )
+
+    assert validated_metadata is not metadata
+
+    assert (
+        validated_metadata["source_cwt"]
+        is not metadata["source_cwt"]
+    )
+
+    assert (
+        validated_metadata["feature_configuration"]
+        is not metadata["feature_configuration"]
+    )
+
+    assert (
+        validated_metadata["shape_summary"]
+        is not metadata["shape_summary"]
+    )
+
+    validated_metadata["shape_summary"][
+        "number_of_frames"
+    ] = 999
+
+    assert (
+        metadata["shape_summary"]["number_of_frames"]
+        == scale_profile["magnitude"].shape[1]
+    )
+
+@pytest.mark.parametrize(
+    "invalid_metadata",
+    [
+        [],
+        "invalid",
+        1,
+        None,
+    ],
+    ids=[
+        "list",
+        "string",
+        "integer",
+        "none",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_non_dictionary_root(
+    invalid_metadata: object,
+):
+    (
+        _,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    with pytest.raises(
+        TypeError,
+        match="metadata root.*mapping",
+    ):
+        validate_scale_profile_metadata(
+            invalid_metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "format_version",
+        "source_cwt",
+        "feature_configuration",
+        "shape_summary",
+        "scale_statistics_summary",
+        "frame_statistics_summary",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_missing_top_level_key(
+    missing_key: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    del metadata[missing_key]  # type: ignore[misc]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_unexpected_top_level_key():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["unexpected"] = "invalid"  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match="unexpected fields.*unexpected",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [
+        0,
+        2,
+        -1,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_bad_format_version(
+    invalid_version: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["format_version"] = invalid_version
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "format_version must be at least 1"
+            if invalid_version < 1
+            else "Unsupported ScaleProfile metadata format version"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [
+        True,
+        False,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_boolean_format_version(
+    invalid_version: bool,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["format_version"] = invalid_version
+
+    with pytest.raises(
+        TypeError,
+        match="integer.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "metadata_format_version",
+        "wavelet",
+        "sampling_period",
+        "sampling_frequency",
+        "method",
+        "precision",
+        "coefficient_dtype",
+        "number_of_scales",
+        "number_of_frames",
+        "minimum_frequency_hz",
+        "maximum_frequency_hz",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_missing_source_cwt_key(
+    missing_key: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    del metadata["source_cwt"][missing_key]  # type: ignore[misc]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_unexpected_source_cwt_key():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"]["unexpected"] = "invalid"  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match="source_cwt contains unexpected fields.*unexpected",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [
+        0,
+        2,
+        -1,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_bad_source_format_version(
+    invalid_version: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "metadata_format_version"
+    ] = invalid_version
+
+    expected_message = (
+        "metadata_format_version must be at least 1"
+        if invalid_version < 1
+        else "Unsupported source CWT metadata format version"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=expected_message,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [
+        True,
+        False,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_boolean_source_format_version(
+    invalid_version: bool,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "metadata_format_version"
+    ] = invalid_version
+
+    with pytest.raises(
+        TypeError,
+        match="integer.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "wavelet",
+        "coefficient_dtype",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_empty_source_string(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][field_name] = "   "
+
+    with pytest.raises(
+        ValueError,
+        match=f"source_cwt.{field_name} must not be empty",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        0.0,
+        -0.005,
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+    ids=[
+        "zero",
+        "negative",
+        "nan",
+        "positive-infinity",
+        "negative-infinity",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_invalid_sampling_period(
+    invalid_value: float,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "sampling_period"
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match="source_cwt.sampling_period",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        0.0,
+        -200.0,
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+    ids=[
+        "zero",
+        "negative",
+        "nan",
+        "positive-infinity",
+        "negative-infinity",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_invalid_sampling_frequency(
+    invalid_value: float,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "sampling_frequency"
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match="source_cwt.sampling_frequency",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_sampling_frequency_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "sampling_frequency"
+    ] = 100.0
+
+    with pytest.raises(
+        ValueError,
+        match="sampling_frequency is inconsistent",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_method",
+    [
+        "",
+        "auto",
+        "invalid",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_invalid_source_method(
+    invalid_method: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"]["method"] = invalid_method
+
+    expected_message = (
+        "must not be empty"
+        if not invalid_method
+        else "must be one of"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=expected_message,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_precision",
+    [
+        MINIMUM_PRECISION - 1,
+        0,
+        -1,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_low_precision(
+    invalid_precision: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "precision"
+    ] = invalid_precision
+
+    with pytest.raises(
+        ValueError,
+        match="precision must be at least",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_boolean_precision():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"]["precision"] = True
+
+    with pytest.raises(
+        TypeError,
+        match="integer.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_source_scale_count_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "number_of_scales"
+    ] += 1
+
+    with pytest.raises(
+        ValueError,
+        match="metadata scale count",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_source_frame_count_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "number_of_frames"
+    ] += 1
+
+    with pytest.raises(
+        ValueError,
+        match="metadata frame count",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "invalid_value",
+        "expected_message",
+    ),
+    [
+        (
+            "minimum_frequency_hz",
+            4.0,
+            "minimum frequency does not match",
+        ),
+        (
+            "maximum_frequency_hz",
+            21.0,
+            "maximum frequency does not match",
+        ),
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_source_frequency_range_mismatch(
+    field_name: str,
+    invalid_value: float,
+    expected_message: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        field_name
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match=expected_message,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_reversed_source_frequency_range():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["source_cwt"][
+        "minimum_frequency_hz"
+    ] = 25.0
+
+    with pytest.raises(
+        ValueError,
+        match="frequency range must be increasing",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+#stage 4
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "magnitude_transform",
+        "standard_deviation_convention",
+        "zero_energy_policy",
+        "dominant_scale_tie_policy",
+        "centroid_coordinate",
+        "dispersion_coordinate",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_missing_feature_configuration_key(
+    missing_key: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    del metadata["feature_configuration"][
+        missing_key
+    ]  # type: ignore[misc]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_unexpected_feature_configuration_key():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["feature_configuration"][
+        "unexpected"
+    ] = "invalid"  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "feature_configuration contains "
+            "unexpected fields.*unexpected"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "invalid_value",
+    ),
+    [
+        (
+            "magnitude_transform",
+            "power",
+        ),
+        (
+            "standard_deviation_convention",
+            "sample",
+        ),
+        (
+            "zero_energy_policy",
+            "nan-statistics",
+        ),
+        (
+            "dominant_scale_tie_policy",
+            "last-index",
+        ),
+        (
+            "centroid_coordinate",
+            "scale_index",
+        ),
+        (
+            "dispersion_coordinate",
+            "scale_index",
+        ),
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_unsupported_feature_configuration(
+    field_name: str,
+    invalid_value: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["feature_configuration"][
+        field_name
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Unsupported ScaleProfile "
+            "feature configuration"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        None,
+        1,
+        True,
+        [],
+    ],
+    ids=[
+        "none",
+        "integer",
+        "boolean",
+        "list",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonstring_feature_configuration(
+    invalid_value: object,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["feature_configuration"][
+        "magnitude_transform"
+    ] = invalid_value  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Unsupported ScaleProfile "
+            "feature configuration"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+#stage 5
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "number_of_scales",
+        "number_of_frames",
+        "frequencies_shape",
+        "magnitude_shape",
+        "scale_statistic_shape",
+        "frame_statistic_shape",
+        "number_of_scale_statistics",
+        "number_of_frame_statistics",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_missing_shape_summary_key(
+    missing_key: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    del metadata["shape_summary"][
+        missing_key
+    ]  # type: ignore[misc]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_unexpected_shape_summary_key():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        "unexpected"
+    ] = 1  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "shape_summary contains "
+            "unexpected fields.*unexpected"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_scale_count_shape_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        "number_of_scales"
+    ] += 1
+
+    with pytest.raises(
+        ValueError,
+        match="frequencies_shape is inconsistent",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_scale_count_array_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    invalid_scale_count = (
+        scale_profile["frequencies"].size + 1
+    )
+
+    metadata["shape_summary"][
+        "number_of_scales"
+    ] = invalid_scale_count
+
+    metadata["shape_summary"][
+        "frequencies_shape"
+    ] = [invalid_scale_count]
+
+    metadata["shape_summary"][
+        "magnitude_shape"
+    ][0] = invalid_scale_count
+
+    metadata["shape_summary"][
+        "scale_statistic_shape"
+    ] = [invalid_scale_count]
+
+    with pytest.raises(
+        ValueError,
+        match="metadata scale count",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_frame_count_array_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    invalid_frame_count = (
+        scale_profile["magnitude"].shape[1] + 1
+    )
+
+    metadata["shape_summary"][
+        "number_of_frames"
+    ] = invalid_frame_count
+
+    metadata["shape_summary"][
+        "magnitude_shape"
+    ][1] = invalid_frame_count
+
+    metadata["shape_summary"][
+        "frame_statistic_shape"
+    ] = [invalid_frame_count]
+
+    with pytest.raises(
+        ValueError,
+        match="metadata frame count",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "number_of_scales",
+        "number_of_frames",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_boolean_dimension(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        field_name
+    ] = True
+
+    with pytest.raises(
+        TypeError,
+        match="integer.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "invalid_value",
+    ),
+    [
+        ("number_of_scales", 0),
+        ("number_of_scales", -1),
+        ("number_of_frames", 0),
+        ("number_of_frames", -1),
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonpositive_dimension(
+    field_name: str,
+    invalid_value: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        field_name
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match=f"{field_name} must be at least 1",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "invalid_shape",
+    ),
+    [
+        (
+            "frequencies_shape",
+            (3,),
+        ),
+        (
+            "magnitude_shape",
+            (3, MINIMUM_FRAMES),
+        ),
+        (
+            "scale_statistic_shape",
+            np.array([3]),
+        ),
+        (
+            "frame_statistic_shape",
+            str(MINIMUM_FRAMES),
+        ),
+    ],
+    ids=[
+        "frequency-tuple",
+        "magnitude-tuple",
+        "scale-numpy-array",
+        "frame-string",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonlist_shape(
+    field_name: str,
+    invalid_shape: object,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        field_name
+    ] = invalid_shape  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        TypeError,
+        match=f"{field_name} must be a list",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "field_name",
+        "invalid_shape",
+    ),
+    [
+        (
+            "frequencies_shape",
+            [4],
+        ),
+        (
+            "magnitude_shape",
+            [3, MINIMUM_FRAMES + 1],
+        ),
+        (
+            "scale_statistic_shape",
+            [4],
+        ),
+        (
+            "frame_statistic_shape",
+            [MINIMUM_FRAMES + 1],
+        ),
+    ],
+    ids=[
+        "frequencies",
+        "magnitude",
+        "scale-statistic",
+        "frame-statistic",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_shape_mismatch(
+    field_name: str,
+    invalid_shape: list[int],
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        field_name
+    ] = invalid_shape  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        ValueError,
+        match=f"{field_name} is inconsistent",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_count",
+    [
+        NUMBER_OF_SCALE_STATISTICS - 1,
+        NUMBER_OF_SCALE_STATISTICS + 1,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_scale_statistic_count_mismatch(
+    invalid_count: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        "number_of_scale_statistics"
+    ] = invalid_count
+
+    with pytest.raises(
+        ValueError,
+        match="Unexpected number of scale statistics",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_count",
+    [
+        NUMBER_OF_FRAME_STATISTICS - 1,
+        NUMBER_OF_FRAME_STATISTICS + 1,
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_frame_statistic_count_mismatch(
+    invalid_count: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        "number_of_frame_statistics"
+    ] = invalid_count
+
+    with pytest.raises(
+        ValueError,
+        match="Unexpected number of frame statistics",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "number_of_scale_statistics",
+        "number_of_frame_statistics",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_boolean_statistic_count(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["shape_summary"][
+        field_name
+    ] = True
+
+    with pytest.raises(
+        TypeError,
+        match="integer.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+#stage 6
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "minimum_scale_mean",
+        "maximum_scale_mean",
+        "minimum_scale_rms",
+        "maximum_scale_rms",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_missing_scale_summary_key(
+    missing_key: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    del metadata["scale_statistics_summary"][
+        missing_key
+    ]  # type: ignore[misc]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_unexpected_scale_summary_key():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["scale_statistics_summary"][
+        "unexpected"
+    ] = 0.0  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "scale_statistics_summary contains "
+            "unexpected fields.*unexpected"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_scale_mean",
+        "maximum_scale_mean",
+        "minimum_scale_rms",
+        "maximum_scale_rms",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonnumeric_scale_summary(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["scale_statistics_summary"][
+        field_name
+    ] = "invalid"  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        TypeError,
+        match="real number",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_boolean_scale_summary():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["scale_statistics_summary"][
+        "minimum_scale_mean"
+    ] = True
+
+    with pytest.raises(
+        TypeError,
+        match="real number.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_scale_mean",
+        "maximum_scale_mean",
+        "minimum_scale_rms",
+        "maximum_scale_rms",
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+    ids=[
+        "nan",
+        "positive-infinity",
+        "negative-infinity",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonfinite_scale_summary(
+    field_name: str,
+    invalid_value: float,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["scale_statistics_summary"][
+        field_name
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match=f"{field_name} must be finite",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_scale_mean",
+        "maximum_scale_mean",
+        "minimum_scale_rms",
+        "maximum_scale_rms",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_negative_scale_summary(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["scale_statistics_summary"][
+        field_name
+    ] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match=f"{field_name} must be at least 0.0",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_scale_mean",
+        "maximum_scale_mean",
+        "minimum_scale_rms",
+        "maximum_scale_rms",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_scale_summary_mismatch(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    original_value = metadata[
+        "scale_statistics_summary"
+    ][field_name]
+
+    metadata["scale_statistics_summary"][
+        field_name
+    ] = original_value + 0.01
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            f"scale_statistics_summary.{field_name} "
+            "does not match"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "minimum_field",
+        "maximum_field",
+    ),
+    [
+        (
+            "minimum_scale_mean",
+            "maximum_scale_mean",
+        ),
+        (
+            "minimum_scale_rms",
+            "maximum_scale_rms",
+        ),
+    ],
+    ids=[
+        "mean",
+        "rms",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_reversed_scale_summary_range(
+    minimum_field: str,
+    maximum_field: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    maximum_value = metadata[
+        "scale_statistics_summary"
+    ][maximum_field]
+
+    metadata["scale_statistics_summary"][
+        minimum_field
+    ] = maximum_value + 1.0
+
+    with pytest.raises(
+        ValueError,
+        match="must not exceed",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+#stage 7
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "minimum_frame_total",
+        "maximum_frame_total",
+        "minimum_centroid_frequency_hz",
+        "maximum_centroid_frequency_hz",
+        "zero_energy_frame_count",
+        "zero_energy_frame_ratio",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_missing_frame_summary_key(
+    missing_key: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    del metadata["frame_statistics_summary"][
+        missing_key
+    ]  # type: ignore[misc]
+
+    with pytest.raises(
+        KeyError,
+        match=missing_key,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_unexpected_frame_summary_key():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        "unexpected"
+    ] = 0.0  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "frame_statistics_summary contains "
+            "unexpected fields.*unexpected"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_frame_total",
+        "maximum_frame_total",
+        "minimum_centroid_frequency_hz",
+        "maximum_centroid_frequency_hz",
+        "zero_energy_frame_ratio",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonnumeric_frame_summary(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        field_name
+    ] = "invalid"  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        TypeError,
+        match="real number",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_frame_total",
+        "maximum_frame_total",
+        "minimum_centroid_frequency_hz",
+        "maximum_centroid_frequency_hz",
+        "zero_energy_frame_ratio",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_boolean_frame_summary(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        field_name
+    ] = True  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        TypeError,
+        match="real number.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_frame_total",
+        "maximum_frame_total",
+        "minimum_centroid_frequency_hz",
+        "maximum_centroid_frequency_hz",
+        "zero_energy_frame_ratio",
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        np.nan,
+        np.inf,
+        -np.inf,
+    ],
+    ids=[
+        "nan",
+        "positive-infinity",
+        "negative-infinity",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_nonfinite_frame_summary(
+    field_name: str,
+    invalid_value: float,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        field_name
+    ] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match=f"{field_name} must be finite",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_frame_total",
+        "maximum_frame_total",
+        "minimum_centroid_frequency_hz",
+        "maximum_centroid_frequency_hz",
+        "zero_energy_frame_ratio",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_negative_frame_summary(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        field_name
+    ] = -1.0
+
+    with pytest.raises(
+        ValueError,
+        match=f"{field_name} must be at least 0.0",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_count",
+    [
+        1.5,
+        "1",
+        True,
+        None,
+    ],
+    ids=[
+        "float",
+        "string",
+        "boolean",
+        "none",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_invalid_zero_energy_count_type(
+    invalid_count: object,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        "zero_energy_frame_count"
+    ] = invalid_count  # type: ignore[typeddict-item]
+
+    with pytest.raises(
+        TypeError,
+        match="integer.*must not be boolean",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "invalid_count",
+    [
+        -1,
+        MINIMUM_FRAMES + 1,
+    ],
+    ids=[
+        "negative",
+        "above-frame-count",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_invalid_zero_energy_count(
+    invalid_count: int,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        "zero_energy_frame_count"
+    ] = invalid_count
+
+    expected_message = (
+        "must be at least 0"
+        if invalid_count < 0
+        else "exceeds the number of frames"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=expected_message,
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_zero_energy_ratio_above_one():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        "zero_energy_frame_ratio"
+    ] = 1.1
+
+    with pytest.raises(
+        ValueError,
+        match="must not exceed 1.0",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "minimum_frame_total",
+        "maximum_frame_total",
+        "minimum_centroid_frequency_hz",
+        "maximum_centroid_frequency_hz",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_frame_summary_mismatch(
+    field_name: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        field_name
+    ] += 0.01
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            f"frame_statistics_summary.{field_name} "
+            "does not match"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_zero_energy_count_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        "zero_energy_frame_count"
+    ] += 1
+
+    with pytest.raises(
+        ValueError,
+        match="zero_energy_frame_count does not match",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+def test_validate_scale_profile_metadata_rejects_zero_energy_ratio_mismatch():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["frame_statistics_summary"][
+        "zero_energy_frame_ratio"
+    ] = 0.25
+
+    with pytest.raises(
+        ValueError,
+        match="zero_energy_frame_ratio does not match",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "minimum_field",
+        "maximum_field",
+    ),
+    [
+        (
+            "minimum_frame_total",
+            "maximum_frame_total",
+        ),
+        (
+            "minimum_centroid_frequency_hz",
+            "maximum_centroid_frequency_hz",
+        ),
+    ],
+    ids=[
+        "frame-total",
+        "centroid-frequency",
+    ],
+)
+def test_validate_scale_profile_metadata_rejects_reversed_frame_summary_range(
+    minimum_field: str,
+    maximum_field: str,
+):
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    maximum_value = metadata[
+        "frame_statistics_summary"
+    ][maximum_field]
+
+    metadata["frame_statistics_summary"][
+        minimum_field
+    ] = maximum_value + 1.0
+
+    with pytest.raises(
+        ValueError,
+        match="must not exceed",
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )
+
+#Stage 8
+def test_validate_scale_profile_metadata_rejects_non_json_value():
+    (
+        source_cwt_metadata,
+        scale_profile,
+    ) = create_scale_profile_metadata_inputs()
+
+    metadata = build_scale_profile_metadata(
+        source_cwt_metadata=source_cwt_metadata,
+        scale_profile=scale_profile,
+    )
+
+    metadata["format_version"] = np.int64(
+        SCALE_PROFILE_FORMAT_VERSION
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "ScaleProfile metadata must be "
+            "JSON serializable"
+        ),
+    ):
+        validate_scale_profile_metadata(
+            metadata,
+            scale_profile=scale_profile,
+        )

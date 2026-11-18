@@ -18,6 +18,7 @@ language-specific interpretation are implemented in later milestones.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -29,6 +30,7 @@ from numpy.typing import NDArray
 from analysis.f0.extract_cwt import (
     CWTMetadata,
     MINIMUM_FRAMES,
+    MINIMUM_PRECISION,
     validate_cwt_metadata,
 )
 
@@ -190,6 +192,65 @@ SCALE_PROFILE_REQUIRED_KEYS = (
     "dominant_frequency_hz",
     "frequency_centroid_hz",
     "frequency_dispersion_hz",
+)
+
+SCALE_PROFILE_METADATA_REQUIRED_KEYS = (
+    "format_version",
+    "source_cwt",
+    "feature_configuration",
+    "shape_summary",
+    "scale_statistics_summary",
+    "frame_statistics_summary",
+)
+
+SOURCE_CWT_METADATA_REQUIRED_KEYS = (
+    "metadata_format_version",
+    "wavelet",
+    "sampling_period",
+    "sampling_frequency",
+    "method",
+    "precision",
+    "coefficient_dtype",
+    "number_of_scales",
+    "number_of_frames",
+    "minimum_frequency_hz",
+    "maximum_frequency_hz",
+)
+
+FEATURE_CONFIGURATION_REQUIRED_KEYS = (
+    "magnitude_transform",
+    "standard_deviation_convention",
+    "zero_energy_policy",
+    "dominant_scale_tie_policy",
+    "centroid_coordinate",
+    "dispersion_coordinate",
+)
+
+SHAPE_SUMMARY_REQUIRED_KEYS = (
+    "number_of_scales",
+    "number_of_frames",
+    "frequencies_shape",
+    "magnitude_shape",
+    "scale_statistic_shape",
+    "frame_statistic_shape",
+    "number_of_scale_statistics",
+    "number_of_frame_statistics",
+)
+
+SCALE_STATISTICS_SUMMARY_REQUIRED_KEYS = (
+    "minimum_scale_mean",
+    "maximum_scale_mean",
+    "minimum_scale_rms",
+    "maximum_scale_rms",
+)
+
+FRAME_STATISTICS_SUMMARY_REQUIRED_KEYS = (
+    "minimum_frame_total",
+    "maximum_frame_total",
+    "minimum_centroid_frequency_hz",
+    "maximum_centroid_frequency_hz",
+    "zero_energy_frame_count",
+    "zero_energy_frame_ratio",
 )
 
 NUMBER_OF_SCALE_STATISTICS = 5
@@ -1818,3 +1879,839 @@ def build_scale_profile_metadata(
     }
 
     return metadata
+
+def _require_exact_metadata_keys(
+    mapping: Mapping[str, object],
+    *,
+    required_keys: tuple[str, ...],
+    name: str,
+) -> None:
+    """Require an exact set of metadata keys."""
+
+    missing_keys = tuple(
+        key
+        for key in required_keys
+        if key not in mapping
+    )
+
+    if missing_keys:
+        raise KeyError(
+            f"{name} is missing required fields: "
+            f"{', '.join(missing_keys)}"
+        )
+
+    unexpected_keys = tuple(
+        key
+        for key in mapping
+        if key not in required_keys
+    )
+
+    if unexpected_keys:
+        raise ValueError(
+            f"{name} contains unexpected fields: "
+            f"{', '.join(unexpected_keys)}"
+        )
+
+
+def _require_metadata_mapping(
+    value: object,
+    *,
+    name: str,
+) -> Mapping[str, object]:
+    """Validate and return a metadata mapping."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(
+            f"{name} must be a mapping"
+        )
+
+    return value
+
+
+def _require_metadata_integer(
+    value: object,
+    *,
+    name: str,
+    minimum: int | None = None,
+) -> int:
+    """Validate one non-boolean metadata integer."""
+
+    if isinstance(value, bool) or not isinstance(
+        value,
+        (int, np.integer),
+    ):
+        raise TypeError(
+            f"{name} must be an integer and must not be boolean"
+        )
+
+    validated_value = int(value)
+
+    if (
+        minimum is not None
+        and validated_value < minimum
+    ):
+        raise ValueError(
+            f"{name} must be at least {minimum}; "
+            f"got {validated_value}"
+        )
+
+    return validated_value
+
+
+def _require_metadata_float(
+    value: object,
+    *,
+    name: str,
+    minimum: float | None = None,
+) -> float:
+    """Validate one finite non-boolean metadata number."""
+
+    if isinstance(value, bool) or not isinstance(
+        value,
+        (int, float, np.integer, np.floating),
+    ):
+        raise TypeError(
+            f"{name} must be a real number and must not be boolean"
+        )
+
+    validated_value = float(value)
+
+    if not np.isfinite(validated_value):
+        raise ValueError(
+            f"{name} must be finite"
+        )
+
+    if (
+        minimum is not None
+        and validated_value < minimum
+    ):
+        raise ValueError(
+            f"{name} must be at least {minimum}; "
+            f"got {validated_value}"
+        )
+
+    return validated_value
+
+
+def _require_metadata_string(
+    value: object,
+    *,
+    name: str,
+) -> str:
+    """Validate one non-empty metadata string."""
+
+    if not isinstance(value, str):
+        raise TypeError(
+            f"{name} must be a string"
+        )
+
+    validated_value = value.strip()
+
+    if not validated_value:
+        raise ValueError(
+            f"{name} must not be empty"
+        )
+
+    return validated_value
+
+def validate_scale_profile_metadata(
+    metadata: object,
+    *,
+    scale_profile: ScaleProfile,
+) -> ScaleProfileMetadata:
+    """Validate ScaleProfile metadata against numerical profile arrays.
+
+    Args:
+        metadata:
+            ScaleProfile metadata to validate.
+
+        scale_profile:
+            Validated ScaleProfile numerical arrays associated with the
+            metadata.
+
+    Returns:
+        An independent validated copy of the metadata.
+
+    Raises:
+        TypeError:
+            If a metadata section or value has an invalid type.
+
+        KeyError:
+            If a required metadata field is absent.
+
+        ValueError:
+            If metadata values violate the ScaleProfile contract or do
+            not match the associated ScaleProfile arrays.
+    """
+
+    root = _require_metadata_mapping(
+        metadata,
+        name="ScaleProfile metadata root",
+    )
+
+    _require_exact_metadata_keys(
+        root,
+        required_keys=(
+            SCALE_PROFILE_METADATA_REQUIRED_KEYS
+        ),
+        name="ScaleProfile metadata",
+    )
+
+    validated_metadata = cast(
+        ScaleProfileMetadata,
+        deepcopy(dict(root)),
+    )
+
+    format_version = _require_metadata_integer(
+        root["format_version"],
+        name="format_version",
+        minimum=1,
+    )
+
+    if format_version != SCALE_PROFILE_FORMAT_VERSION:
+        raise ValueError(
+            "Unsupported ScaleProfile metadata format version; "
+            f"expected {SCALE_PROFILE_FORMAT_VERSION}, "
+            f"got {format_version}"
+        )
+
+    source_cwt = _require_metadata_mapping(
+        root["source_cwt"],
+        name="source_cwt",
+    )
+
+    feature_configuration = _require_metadata_mapping(
+        root["feature_configuration"],
+        name="feature_configuration",
+    )
+
+    shape_summary = _require_metadata_mapping(
+        root["shape_summary"],
+        name="shape_summary",
+    )
+
+    scale_summary = _require_metadata_mapping(
+        root["scale_statistics_summary"],
+        name="scale_statistics_summary",
+    )
+
+    frame_summary = _require_metadata_mapping(
+        root["frame_statistics_summary"],
+        name="frame_statistics_summary",
+    )
+
+    _require_exact_metadata_keys(
+        source_cwt,
+        required_keys=SOURCE_CWT_METADATA_REQUIRED_KEYS,
+        name="source_cwt",
+    )
+
+    _require_exact_metadata_keys(
+        feature_configuration,
+        required_keys=(
+            FEATURE_CONFIGURATION_REQUIRED_KEYS
+        ),
+        name="feature_configuration",
+    )
+
+    _require_exact_metadata_keys(
+        shape_summary,
+        required_keys=SHAPE_SUMMARY_REQUIRED_KEYS,
+        name="shape_summary",
+    )
+
+    _require_exact_metadata_keys(
+        scale_summary,
+        required_keys=(
+            SCALE_STATISTICS_SUMMARY_REQUIRED_KEYS
+        ),
+        name="scale_statistics_summary",
+    )
+
+    _require_exact_metadata_keys(
+        frame_summary,
+        required_keys=(
+            FRAME_STATISTICS_SUMMARY_REQUIRED_KEYS
+        ),
+        name="frame_statistics_summary",
+    )
+
+    source_metadata_version = _require_metadata_integer(
+        source_cwt["metadata_format_version"],
+        name="source_cwt.metadata_format_version",
+        minimum=1,
+    )
+
+    if source_metadata_version != 1:
+        raise ValueError(
+            "Unsupported source CWT metadata format version; "
+            f"expected 1, got {source_metadata_version}"
+        )
+
+    _require_metadata_string(
+        source_cwt["wavelet"],
+        name="source_cwt.wavelet",
+    )
+
+    sampling_period = _require_metadata_float(
+        source_cwt["sampling_period"],
+        name="source_cwt.sampling_period",
+        minimum=0.0,
+    )
+
+    sampling_frequency = _require_metadata_float(
+        source_cwt["sampling_frequency"],
+        name="source_cwt.sampling_frequency",
+        minimum=0.0,
+    )
+
+    if sampling_period <= 0.0:
+        raise ValueError(
+            "source_cwt.sampling_period must be positive"
+        )
+
+    if sampling_frequency <= 0.0:
+        raise ValueError(
+            "source_cwt.sampling_frequency must be positive"
+        )
+
+    if not np.isclose(
+        sampling_frequency,
+        1.0 / sampling_period,
+        rtol=SCALE_PROFILE_RTOL,
+        atol=SCALE_PROFILE_ATOL,
+    ):
+        raise ValueError(
+            "source_cwt.sampling_frequency is inconsistent "
+            "with source_cwt.sampling_period"
+        )
+
+    method = _require_metadata_string(
+        source_cwt["method"],
+        name="source_cwt.method",
+    )
+
+    if method not in ("conv", "fft"):
+        raise ValueError(
+            "source_cwt.method must be one of: conv, fft"
+        )
+
+    _require_metadata_integer(
+        source_cwt["precision"],
+        name="source_cwt.precision",
+        minimum=MINIMUM_PRECISION,
+    )
+
+    _require_metadata_string(
+        source_cwt["coefficient_dtype"],
+        name="source_cwt.coefficient_dtype",
+    )
+
+    source_scale_count = _require_metadata_integer(
+        source_cwt["number_of_scales"],
+        name="source_cwt.number_of_scales",
+        minimum=1,
+    )
+
+    source_frame_count = _require_metadata_integer(
+        source_cwt["number_of_frames"],
+        name="source_cwt.number_of_frames",
+        minimum=1,
+    )
+
+    source_minimum_frequency = _require_metadata_float(
+        source_cwt["minimum_frequency_hz"],
+        name="source_cwt.minimum_frequency_hz",
+        minimum=0.0,
+    )
+
+    source_maximum_frequency = _require_metadata_float(
+        source_cwt["maximum_frequency_hz"],
+        name="source_cwt.maximum_frequency_hz",
+        minimum=0.0,
+    )
+
+    if source_minimum_frequency <= 0.0:
+        raise ValueError(
+            "source_cwt.minimum_frequency_hz must be positive"
+        )
+
+    if source_maximum_frequency <= 0.0:
+        raise ValueError(
+            "source_cwt.maximum_frequency_hz must be positive"
+        )
+
+    if (
+        source_minimum_frequency
+        >= source_maximum_frequency
+    ):
+        raise ValueError(
+            "source_cwt frequency range must be increasing"
+        )
+
+    expected_configuration = {
+        "magnitude_transform": MAGNITUDE_TRANSFORM,
+        "standard_deviation_convention": (
+            STANDARD_DEVIATION_CONVENTION
+        ),
+        "zero_energy_policy": ZERO_ENERGY_POLICY,
+        "dominant_scale_tie_policy": (
+            DOMINANT_SCALE_TIE_POLICY
+        ),
+        "centroid_coordinate": CENTROID_COORDINATE,
+        "dispersion_coordinate": DISPERSION_COORDINATE,
+    }
+
+    if dict(feature_configuration) != expected_configuration:
+        raise ValueError(
+            "Unsupported ScaleProfile feature configuration"
+        )
+
+    number_of_scales = _require_metadata_integer(
+        shape_summary["number_of_scales"],
+        name="shape_summary.number_of_scales",
+        minimum=1,
+    )
+
+    number_of_frames = _require_metadata_integer(
+        shape_summary["number_of_frames"],
+        name="shape_summary.number_of_frames",
+        minimum=1,
+    )
+
+    expected_shapes = {
+        "frequencies_shape": [
+            number_of_scales
+        ],
+        "magnitude_shape": [
+            number_of_scales,
+            number_of_frames,
+        ],
+        "scale_statistic_shape": [
+            number_of_scales
+        ],
+        "frame_statistic_shape": [
+            number_of_frames
+        ],
+    }
+
+    for name, expected_shape in expected_shapes.items():
+        actual_shape = shape_summary[name]
+
+        if not isinstance(actual_shape, list):
+            raise TypeError(
+                f"shape_summary.{name} must be a list"
+            )
+
+        if actual_shape != expected_shape:
+            raise ValueError(
+                f"shape_summary.{name} is inconsistent; "
+                f"expected {expected_shape}, "
+                f"got {actual_shape}"
+            )
+
+    scale_statistic_count = _require_metadata_integer(
+        shape_summary["number_of_scale_statistics"],
+        name="shape_summary.number_of_scale_statistics",
+        minimum=1,
+    )
+
+    frame_statistic_count = _require_metadata_integer(
+        shape_summary["number_of_frame_statistics"],
+        name="shape_summary.number_of_frame_statistics",
+        minimum=1,
+    )
+
+    if scale_statistic_count != NUMBER_OF_SCALE_STATISTICS:
+        raise ValueError(
+            "Unexpected number of scale statistics"
+        )
+
+    if frame_statistic_count != NUMBER_OF_FRAME_STATISTICS:
+        raise ValueError(
+            "Unexpected number of frame statistics"
+        )
+
+    actual_scale_count = int(
+        scale_profile["frequencies"].size
+    )
+
+    actual_frame_count = int(
+        scale_profile["magnitude"].shape[1]
+    )
+
+    if (
+        source_scale_count != actual_scale_count
+        or number_of_scales != actual_scale_count
+    ):
+        raise ValueError(
+            "ScaleProfile metadata scale count does not "
+            "match the ScaleProfile arrays"
+        )
+
+    if (
+        source_frame_count != actual_frame_count
+        or number_of_frames != actual_frame_count
+    ):
+        raise ValueError(
+            "ScaleProfile metadata frame count does not "
+            "match the ScaleProfile arrays"
+        )
+
+    actual_minimum_frequency = float(
+        np.min(scale_profile["frequencies"])
+    )
+
+    actual_maximum_frequency = float(
+        np.max(scale_profile["frequencies"])
+    )
+
+    if not np.isclose(
+        source_minimum_frequency,
+        actual_minimum_frequency,
+        rtol=SCALE_PROFILE_RTOL,
+        atol=SCALE_PROFILE_ATOL,
+    ):
+        raise ValueError(
+            "Source CWT minimum frequency does not match "
+            "the ScaleProfile arrays"
+        )
+
+    if not np.isclose(
+        source_maximum_frequency,
+        actual_maximum_frequency,
+        rtol=SCALE_PROFILE_RTOL,
+        atol=SCALE_PROFILE_ATOL,
+    ):
+        raise ValueError(
+            "Source CWT maximum frequency does not match "
+            "the ScaleProfile arrays"
+        )
+
+    minimum_scale_mean = _require_metadata_float(
+        scale_summary["minimum_scale_mean"],
+        name=(
+            "scale_statistics_summary."
+            "minimum_scale_mean"
+        ),
+        minimum=0.0,
+    )
+
+    maximum_scale_mean = _require_metadata_float(
+        scale_summary["maximum_scale_mean"],
+        name=(
+            "scale_statistics_summary."
+            "maximum_scale_mean"
+        ),
+        minimum=0.0,
+    )
+
+    minimum_scale_rms = _require_metadata_float(
+        scale_summary["minimum_scale_rms"],
+        name=(
+            "scale_statistics_summary."
+            "minimum_scale_rms"
+        ),
+        minimum=0.0,
+    )
+
+    maximum_scale_rms = _require_metadata_float(
+        scale_summary["maximum_scale_rms"],
+        name=(
+            "scale_statistics_summary."
+            "maximum_scale_rms"
+        ),
+        minimum=0.0,
+    )
+
+    if minimum_scale_mean > maximum_scale_mean:
+        raise ValueError(
+            "minimum_scale_mean must not exceed "
+            "maximum_scale_mean"
+        )
+
+    if minimum_scale_rms > maximum_scale_rms:
+        raise ValueError(
+            "minimum_scale_rms must not exceed "
+            "maximum_scale_rms"
+        )
+
+    actual_scale_summary = {
+        "minimum_scale_mean": minimum_scale_mean,
+        "maximum_scale_mean": maximum_scale_mean,
+        "minimum_scale_rms": minimum_scale_rms,
+        "maximum_scale_rms": maximum_scale_rms,
+    }
+
+    expected_scale_summary = {
+        "minimum_scale_mean": float(
+            np.min(scale_profile["scale_mean"])
+        ),
+        "maximum_scale_mean": float(
+            np.max(scale_profile["scale_mean"])
+        ),
+        "minimum_scale_rms": float(
+            np.min(scale_profile["scale_rms"])
+        ),
+        "maximum_scale_rms": float(
+            np.max(scale_profile["scale_rms"])
+        ),
+    }
+
+    for name, expected_value in (
+        expected_scale_summary.items()
+    ):
+        actual_value = actual_scale_summary[name]
+
+        if not np.isclose(
+            actual_value,
+            expected_value,
+            rtol=SCALE_PROFILE_RTOL,
+            atol=SCALE_PROFILE_ATOL,
+        ):
+            raise ValueError(
+                f"scale_statistics_summary.{name} "
+                "does not match the ScaleProfile arrays"
+            )
+
+    frame_total = scale_profile["frame_total"]
+    centroid = scale_profile[
+        "frequency_centroid_hz"
+    ]
+
+    zero_energy_count = int(
+        np.count_nonzero(
+            frame_total == 0.0
+        )
+    )
+
+    zero_energy_ratio = float(
+        zero_energy_count
+        / actual_frame_count
+    )
+
+    minimum_frame_total = _require_metadata_float(
+        frame_summary["minimum_frame_total"],
+        name=(
+            "frame_statistics_summary."
+            "minimum_frame_total"
+        ),
+        minimum=0.0,
+    )
+
+    maximum_frame_total = _require_metadata_float(
+        frame_summary["maximum_frame_total"],
+        name=(
+            "frame_statistics_summary."
+            "maximum_frame_total"
+        ),
+        minimum=0.0,
+    )
+
+    minimum_centroid_frequency_hz = (
+        _require_metadata_float(
+            frame_summary[
+                "minimum_centroid_frequency_hz"
+            ],
+            name=(
+                "frame_statistics_summary."
+                "minimum_centroid_frequency_hz"
+            ),
+            minimum=0.0,
+        )
+    )
+
+    maximum_centroid_frequency_hz = (
+        _require_metadata_float(
+            frame_summary[
+                "maximum_centroid_frequency_hz"
+            ],
+            name=(
+                "frame_statistics_summary."
+                "maximum_centroid_frequency_hz"
+            ),
+            minimum=0.0,
+        )
+    )
+
+    if minimum_frame_total > maximum_frame_total:
+        raise ValueError(
+            "minimum_frame_total must not exceed "
+            "maximum_frame_total"
+        )
+
+    if (
+        minimum_centroid_frequency_hz
+        > maximum_centroid_frequency_hz
+    ):
+        raise ValueError(
+            "minimum_centroid_frequency_hz must not exceed "
+            "maximum_centroid_frequency_hz"
+        )
+
+    minimum_frame_total = _require_metadata_float(
+        frame_summary["minimum_frame_total"],
+        name=(
+            "frame_statistics_summary."
+            "minimum_frame_total"
+        ),
+        minimum=0.0,
+    )
+
+    maximum_frame_total = _require_metadata_float(
+        frame_summary["maximum_frame_total"],
+        name=(
+            "frame_statistics_summary."
+            "maximum_frame_total"
+        ),
+        minimum=0.0,
+    )
+
+    minimum_centroid_frequency_hz = (
+        _require_metadata_float(
+            frame_summary[
+                "minimum_centroid_frequency_hz"
+            ],
+            name=(
+                "frame_statistics_summary."
+                "minimum_centroid_frequency_hz"
+            ),
+            minimum=0.0,
+        )
+    )
+
+    maximum_centroid_frequency_hz = (
+        _require_metadata_float(
+            frame_summary[
+                "maximum_centroid_frequency_hz"
+            ],
+            name=(
+                "frame_statistics_summary."
+                "maximum_centroid_frequency_hz"
+            ),
+            minimum=0.0,
+        )
+    )
+
+    if minimum_frame_total > maximum_frame_total:
+        raise ValueError(
+            "minimum_frame_total must not exceed "
+            "maximum_frame_total"
+        )
+
+    if (
+        minimum_centroid_frequency_hz
+        > maximum_centroid_frequency_hz
+    ):
+        raise ValueError(
+            "minimum_centroid_frequency_hz must not exceed "
+            "maximum_centroid_frequency_hz"
+        )
+
+    actual_frame_summary = {
+        "minimum_frame_total": minimum_frame_total,
+        "maximum_frame_total": maximum_frame_total,
+        "minimum_centroid_frequency_hz": (
+            minimum_centroid_frequency_hz
+        ),
+        "maximum_centroid_frequency_hz": (
+            maximum_centroid_frequency_hz
+        ),
+    }
+
+    expected_frame_summary = {
+        "minimum_frame_total": float(
+            np.min(frame_total)
+        ),
+        "maximum_frame_total": float(
+            np.max(frame_total)
+        ),
+        "minimum_centroid_frequency_hz": float(
+            np.min(centroid)
+        ),
+        "maximum_centroid_frequency_hz": float(
+            np.max(centroid)
+        ),
+    }
+
+    for name, expected_value in (
+        expected_frame_summary.items()
+    ):
+        actual_value = actual_frame_summary[name]
+
+        if not np.isclose(
+            actual_value,
+            expected_value,
+            rtol=SCALE_PROFILE_RTOL,
+            atol=SCALE_PROFILE_ATOL,
+        ):
+            raise ValueError(
+                f"frame_statistics_summary.{name} "
+                "does not match the ScaleProfile arrays"
+            )
+
+    metadata_zero_energy_count = (
+        _require_metadata_integer(
+            frame_summary[
+                "zero_energy_frame_count"
+            ],
+            name=(
+                "frame_statistics_summary."
+                "zero_energy_frame_count"
+            ),
+            minimum=0,
+        )
+    )
+
+    metadata_zero_energy_ratio = (
+        _require_metadata_float(
+            frame_summary[
+                "zero_energy_frame_ratio"
+            ],
+            name=(
+                "frame_statistics_summary."
+                "zero_energy_frame_ratio"
+            ),
+            minimum=0.0,
+        )
+    )
+
+    if metadata_zero_energy_count > actual_frame_count:
+        raise ValueError(
+            "zero_energy_frame_count exceeds "
+            "the number of frames"
+        )
+
+    if metadata_zero_energy_ratio > 1.0:
+        raise ValueError(
+            "zero_energy_frame_ratio must not exceed 1.0"
+        )
+
+    if metadata_zero_energy_count != zero_energy_count:
+        raise ValueError(
+            "zero_energy_frame_count does not match "
+            "the ScaleProfile arrays"
+        )
+
+    if not np.isclose(
+        metadata_zero_energy_ratio,
+        zero_energy_ratio,
+        rtol=SCALE_PROFILE_RTOL,
+        atol=SCALE_PROFILE_ATOL,
+    ):
+        raise ValueError(
+            "zero_energy_frame_ratio does not match "
+            "the ScaleProfile arrays"
+        )
+
+    try:
+        json.dumps(
+            validated_metadata
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "ScaleProfile metadata must be "
+            "JSON serializable"
+        ) from error
+
+    return validated_metadata
