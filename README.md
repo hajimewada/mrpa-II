@@ -172,8 +172,8 @@ to be represented across multiple temporal resolutions.
 
 ### Implemented pipeline
 
-The current implementation provides a validated and persistent
-Continuous Wavelet Transform pipeline:
+The current implementation provides a validated and persistent pipeline
+from continuous F0 to Boundary candidate discovery:
 
 ```text
 Continuous F0
@@ -190,18 +190,31 @@ Continuous Wavelet Transform
   ↓
 CWT Result Validation
   ↓
-Metadata Generation and Validation
+ScaleProfile Feature Extraction
   ↓
-Persistent CWT Representation
+Scale-Level and Frame-Level Statistics
+  ↓
+Boundary Evidence Construction
+  ↓
+Boundary Strength Computation
+  ↓
+Local-Maximum Candidate Discovery
+  ↓
+Threshold and Minimum-Distance Filtering
+  ↓
+Persistent Boundary Candidate Representation
 ```
 
-This pipeline transforms an interpolated continuous-F0 track and its
-time axis into a compressed CWT archive and a versioned metadata file.
+This pipeline transforms an interpolated continuous-F0 track into
+validated CWT, ScaleProfile, and Boundary candidate representations.
+Each processing stage produces compressed numerical arrays and
+versioned JSON metadata.
+
 
 ### Planned MRPA-II pipeline
 
-MRPA-II extends the implemented signal-processing foundation toward
-primitive, node, and topology discovery:
+MRPA-II extends the implemented Boundary discovery foundation toward
+Nucleus, node, and topology discovery:
 
 ```text
 Audio
@@ -233,9 +246,11 @@ Prosodic Topology
 Cross-Linguistic Validation
 ```
 
-The distinction between implemented and planned components is
-intentional. The validated CWT foundation is implemented; primitive,
-node, and topology discovery remain active research stages.
+The validated CWT, ScaleProfile, and Boundary candidate pipelines are
+implemented. Nucleus discovery, variable-length node construction,
+prosodic topology, and cross-linguistic validation remain planned
+research stages.
+
 
 ## Current Implementation Status
 
@@ -329,8 +344,7 @@ Implemented functionality includes:
 - end-to-end CLI acceptance testing.
 
 
-#### Milestone 7: 
-Boundary candidate discovery
+#### Milestone 7: Boundary candidate discovery
 
 Implemented functionality includes:
 
