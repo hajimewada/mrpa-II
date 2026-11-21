@@ -309,21 +309,50 @@ Implemented functionality includes:
 - CLI persistence integration;
 - end-to-end persistence acceptance testing.
 
+
 #### Milestone 6: CWT feature extraction and ScaleProfile construction
 
 Implemented functionality includes:
 
+- persisted CWT loading and validation;
+- real and complex CWT magnitude computation;
 - scale-level statistical feature extraction;
 - frame-level statistical feature extraction;
 - dominant-frequency, frequency-centroid, and frequency-dispersion computation;
 - zero-energy frame handling;
-- ScaleProfile construction and array validation;
+- ScaleProfile construction and validation;
 - versioned metadata construction and validation;
 - compressed ScaleProfile archive generation;
 - JSON metadata persistence;
 - integrated extraction orchestration;
 - command-line integration;
 - end-to-end CLI acceptance testing.
+
+
+#### Milestone 7: 
+Boundary candidate discovery
+
+Implemented functionality includes:
+
+- persisted ScaleProfile loading and validation;
+- frame-level feature-difference computation;
+- median and MAD normalization;
+- multi-feature Boundary evidence construction;
+- weighted Boundary strength computation;
+- Boundary strength validation;
+- local-maximum detection;
+- deterministic plateau handling;
+- threshold-based candidate filtering;
+- minimum candidate-distance enforcement;
+- Boundary candidate construction and validation;
+- versioned metadata construction and validation;
+- compressed Boundary archive generation;
+- JSON metadata persistence;
+- integrated extraction orchestration;
+- command-line integration;
+- end-to-end CLI acceptance testing.
+
+
 
 ## Repository Status
 
