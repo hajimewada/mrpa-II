@@ -366,16 +366,52 @@ Implemented functionality includes:
 - command-line integration;
 - end-to-end CLI acceptance testing.
 
+#### Milestone 8: Nucleus candidate discovery
 
+Implemented functionality includes:
+
+- persisted ScaleProfile loading and validation;
+- persisted Boundary candidate loading and validation;
+- local-contrast computation with configurable frame radius;
+- median and MAD normalization of local contrast;
+- six-feature Nucleus evidence construction;
+- configurable weighted Nucleus strength computation;
+- Nucleus strength validation;
+- endpoint-aware local-maximum detection;
+- deterministic first-index plateau handling;
+- inclusive threshold-based candidate filtering;
+- minimum candidate-distance enforcement;
+- configurable Boundary-adjacent candidate exclusion;
+- Nucleus candidate construction and validation;
+- versioned metadata construction and validation;
+- compressed Nucleus archive generation;
+- strict JSON metadata persistence;
+- integrated extraction orchestration;
+- configurable command-line integration;
+- end-to-end CLI acceptance and error-path testing.
+
+The Nucleus output archive contains:
+
+- `nucleus_strength`;
+- `candidate_frame_indices`;
+- `candidate_strengths`.
+
+Current validation status:
+
+- 382 Nucleus-specific tests passing;
+- 1,116 tests passing across the full repository;
+- no failures or skipped Nucleus tests;
+- `git diff --check` completing without output.
+
+A known warning remains in PyWORLD 0.3.5 because its package initialization imports the deprecated `pkg_resources` API.
 
 ## Repository Status
 
 MRPA-II is in active implementation.
 
-The current codebase contains a complete and tested CWT preprocessing
-pipeline with validated input handling, signal preparation, physical
-scale generation, transform computation, metadata construction, output
-persistence, and command-line integration.
+MRPA-II is in active implementation.
+The current codebase contains tested and integrated pipelines for CWT preprocessing, ScaleProfile feature extraction, Boundary candidate discovery, and Nucleus candidate discovery. These pipelines include validated input handling, deterministic numerical processing, versioned metadata construction, compressed output persistence, command-line integration, and end-to-end acceptance testing.
+
 
 Current validation status:
 
