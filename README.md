@@ -413,39 +413,46 @@ MRPA-II is in active implementation.
 The current codebase contains tested and integrated pipelines for CWT preprocessing, ScaleProfile feature extraction, Boundary candidate discovery, and Nucleus candidate discovery. These pipelines include validated input handling, deterministic numerical processing, versioned metadata construction, compressed output persistence, command-line integration, and end-to-end acceptance testing.
 
 
+
 Current validation status:
 
 ```text
-tests/test_extract_cwt.py : 292 passed
-full test suite           : 306 passed
+tests/test_extract_nucleus_candidates.py : 382 passed
+full test suite                           : 1,116 passed
+git diff --check                          : no output
 ```
 
 One known non-blocking warning originates from the installed `pyworld`
-package's use of the deprecated `pkg_resources` API.
+0.3.5 package's use of the deprecated `pkg_resources` API.
 
-## Current Output Format
+## Current Output Formats
 
-The CWT pipeline produces two primary artifacts:
+MRPA-II currently implements four connected processing stages:
 
 ```text
-cwt.npz
-cwt_metadata.json
+CWT extraction
+    ↓
+ScaleProfile extraction
+    ↓
+Boundary candidate discovery
+    ↓
+Nucleus candidate discovery
 ```
+
+Each stage produces a compressed NumPy archive and a versioned JSON
+metadata document.
 
 If `--metadata-output` is not specified, the metadata filename is
-derived from the output archive name.
+derived from the corresponding output archive name.
 
-For example:
+### CWT outputs
 
 ```text
 cwt.npz
-  ↓
 cwt_metadata.json
 ```
 
-### CWT archive
-
-The compressed NumPy archive contains:
+The CWT archive contains:
 
 ```text
 coefficients
@@ -461,9 +468,7 @@ number_of_scales × number_of_frames
 `frequencies` is a one-dimensional array aligned with the scale
 dimension of the coefficient matrix.
 
-### Metadata file
-
-The JSON metadata document uses a versioned top-level schema:
+The CWT metadata document contains:
 
 ```text
 format_version
@@ -473,17 +478,107 @@ scale_summary
 cwt_summary
 ```
 
-The metadata records:
+It records the wavelet configuration, sampling period, sampling
+frequency, transform method and precision, signal statistics, physical
+frequency and scale ranges, output dimensions, and coefficient
+statistics.
 
-- wavelet configuration;
-- sampling period and sampling frequency;
-- CWT computation method and precision;
-- signal-preparation configuration and summary statistics;
-- physical period, frequency, and scale ranges;
-- CWT dimensions and coefficient statistics.
+### ScaleProfile outputs
 
-The format version allows future schema evolution while preserving an
-explicit compatibility boundary.
+```text
+scale_profile.npz
+scale_profile_metadata.json
+```
+
+The ScaleProfile archive contains fourteen arrays:
+
+```text
+frequencies
+magnitude
+scale_mean
+scale_std
+scale_median
+scale_max
+scale_rms
+frame_total
+frame_mean
+frame_max
+dominant_scale_index
+dominant_frequency_hz
+frequency_centroid_hz
+frequency_dispersion_hz
+```
+
+These arrays summarize the CWT magnitude across both scale and frame
+dimensions. The associated metadata records the source CWT contract,
+feature configuration, array shapes, scale statistics, and frame
+statistics.
+
+### Boundary candidate outputs
+
+```text
+boundary_candidates.npz
+boundary_candidates_metadata.json
+```
+
+The Boundary archive contains:
+
+```text
+boundary_strength
+candidate_frame_indices
+candidate_strengths
+```
+
+Boundary candidates are derived from normalized frame-level changes in
+six ScaleProfile features. Candidate discovery applies weighted evidence
+integration, deterministic local-maximum detection, an inclusive
+threshold, and minimum candidate-distance enforcement.
+
+The associated metadata records the source ScaleProfile contract,
+Boundary configuration, output shapes, strength statistics, and candidate
+statistics.
+
+### Nucleus candidate outputs
+
+```text
+nucleus_candidates.npz
+nucleus_candidates_metadata.json
+```
+
+The Nucleus archive contains:
+
+```text
+nucleus_strength
+candidate_frame_indices
+candidate_strengths
+```
+
+Nucleus candidates are derived from normalized local contrast in six
+ScaleProfile features. Candidate discovery applies configurable feature
+weights, endpoint-aware local-maximum detection, deterministic
+first-index plateau handling, an inclusive threshold, minimum
+candidate-distance enforcement, and configurable exclusion around
+Boundary candidates.
+
+The associated metadata records:
+
+```text
+format_version
+source_scale_profile
+source_boundary
+nucleus_configuration
+shape_summary
+nucleus_summary
+```
+
+The metadata includes source compatibility information, feature names and
+weights, local-contrast configuration, candidate-selection settings,
+output shapes, strength ranges, candidate statistics, and the number of
+candidates removed by Boundary exclusion.
+
+All persisted metadata uses versioned schemas and strict JSON
+serialization. Candidate archives use compressed NumPy storage and are
+validated against their source metadata before being written.
 
 ## Implemented Repository Structure
 
@@ -492,20 +587,47 @@ The implemented repository includes the following core components:
 ```text
 mrpa-II/
 ├── analysis/
-│   └── f0/
-│       ├── interpolate_f0.py
-│       └── extract_cwt.py
+│   ├── boundary/
+│   │   ├── __init__.py
+│   │   └── extract_boundary_candidates.py
+│   ├── f0/
+│   │   ├── interpolate_f0.py
+│   │   ├── extract_cwt.py
+│   │   └── extract_scale_profile.py
+│   └── nucleus/
+│       ├── __init__.py
+│       └── extract_nucleus_candidates.py
 ├── tests/
-│   └── test_extract_cwt.py
+│   ├── test_extract_cwt.py
+│   ├── test_extract_scale_profile.py
+│   ├── test_extract_boundary_candidates.py
+│   └── test_extract_nucleus_candidates.py
 └── README.md
 ```
 
-Additional files and supporting components may also be present as the
-repository evolves.
+The implemented modules provide validated numerical processing,
+versioned metadata, compressed persistence, command-line interfaces, and
+end-to-end acceptance tests for the CWT, ScaleProfile, Boundary, and
+Nucleus stages.
 
-## Planned Repository Structure
 
-The broader planned structure remains:
+## Repository Roadmap
+
+The repository currently implements the following connected analysis stages:
+
+```text
+continuous F0
+    ↓
+CWT representation
+    ↓
+ScaleProfile features
+    ↓
+Boundary candidates
+    ↓
+Nucleus candidates
+```
+
+The broader planned structure is:
 
 ```text
 mrpa-II/
@@ -515,10 +637,15 @@ mrpa-II/
 │   │   ├── interpolate_f0.py
 │   │   ├── plot_f0.py
 │   │   ├── extract_cwt.py
+│   │   ├── extract_scale_profile.py
 │   │   ├── scale_energy.py
 │   │   └── plot_scale_energy.py
 │   ├── boundary/
+│   │   ├── __init__.py
+│   │   └── extract_boundary_candidates.py
 │   ├── nucleus/
+│   │   ├── __init__.py
+│   │   └── extract_nucleus_candidates.py
 │   ├── nodes/
 │   └── topology/
 ├── docs/
@@ -535,26 +662,32 @@ mrpa-II/
 └── README.md
 ```
 
-Generated datasets and intermediate analysis artifacts should not
-normally be committed to Git.
+The `nodes` and `topology` stages remain future work. The implemented
+CWT, ScaleProfile, Boundary, and Nucleus stages establish the validated
+numerical and persistence foundation for those later stages.
+
+Generated datasets, compressed intermediate representations, metadata
+artifacts, and experiment outputs should not normally be committed to
+Git unless they are intentionally included as small test fixtures.
 
 ## Installation
 
 > [!IMPORTANT]
-> The CWT extraction and persistence pipeline is implemented and tested.
-> Dependency installation should use the repository's current dependency
-> specification when available.
+> The CWT, ScaleProfile, Boundary candidate, and Nucleus candidate
+> pipelines are implemented and tested. Dependency installation should
+> use the repository's current dependency specification.
 
 ### 1. System requirements
 
 Baseline environment:
 
-- Linux or macOS;
+- Linux, macOS, or Windows;
 - Python 3.11 or later;
 - Git;
 - a Python virtual environment.
 
-The current F0 and CWT processing pipeline does not require a GPU.
+The currently implemented CWT, ScaleProfile, Boundary, and Nucleus
+pipelines use CPU-based numerical processing and do not require a GPU.
 
 ### 2. Clone the repository
 
@@ -614,23 +747,46 @@ python -m pip install --upgrade pip setuptools wheel
 
 ### 6. Install project dependencies
 
-If the repository contains `requirements.txt`, install the declared
-dependencies with:
+Install the dependencies declared by the repository:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-The current processing pipeline relies on packages for:
+The implemented processing pipeline relies on packages for:
 
 - numerical array processing;
 - continuous wavelet analysis;
 - F0 and audio processing;
+- compressed NumPy persistence;
+- JSON metadata persistence;
 - automated testing.
 
-## Current Executable Example
+A known non-blocking warning originates from `pyworld` 0.3.5 importing
+the deprecated `pkg_resources` API.
 
-The CWT pipeline accepts an interpolated continuous-F0 array and its
+## Executable Pipeline
+
+The implemented command-line tools form a connected processing path:
+
+```text
+continuous F0 arrays
+    ↓
+extract_cwt.py
+    ↓
+extract_scale_profile.py
+    ↓
+extract_boundary_candidates.py
+    ↓
+extract_nucleus_candidates.py
+```
+
+Each stage validates its inputs and associated metadata before performing
+new computation.
+
+### 1. CWT extraction
+
+The CWT command accepts an interpolated continuous-F0 array and its
 corresponding time axis.
 
 ```bash
@@ -654,10 +810,11 @@ python analysis/f0/extract_cwt.py \
     --input continuous_f0.npy \
     --time-input time.npy \
     --output cwt.npz \
-    --metadata-output metadata.json
+    --metadata-output cwt_metadata.json
 ```
 
-Optional inputs can be supplied when available:
+Optional voicing, interpolation-mask, and interpolation-metadata inputs
+may be supplied when available:
 
 ```bash
 python analysis/f0/extract_cwt.py \
@@ -670,16 +827,128 @@ python analysis/f0/extract_cwt.py \
     --metadata-output cwt_metadata.json
 ```
 
-The CLI validates all declared inputs before running the transform. On
-success, it computes the CWT representation, constructs and validates
-the metadata, and saves both output artifacts.
+### 2. ScaleProfile extraction
+
+The ScaleProfile stage loads and validates the persisted CWT arrays and
+metadata, then derives scale-level and frame-level feature summaries.
+
+```bash
+python analysis/f0/extract_scale_profile.py \
+    --input cwt.npz \
+    --metadata-input cwt_metadata.json \
+    --output scale_profile.npz
+```
+
+The default output set is:
+
+```text
+scale_profile.npz
+scale_profile_metadata.json
+```
+
+### 3. Boundary candidate discovery
+
+The Boundary stage loads the validated ScaleProfile artifacts and
+discovers candidate prosodic boundaries.
+
+```bash
+python analysis/boundary/extract_boundary_candidates.py \
+    --input scale_profile.npz \
+    --metadata-input scale_profile_metadata.json \
+    --output boundary_candidates.npz
+```
+
+The default output set is:
+
+```text
+boundary_candidates.npz
+boundary_candidates_metadata.json
+```
+
+Boundary threshold and candidate spacing can be overridden:
+
+```bash
+python analysis/boundary/extract_boundary_candidates.py \
+    --input scale_profile.npz \
+    --metadata-input scale_profile_metadata.json \
+    --output boundary_candidates.npz \
+    --threshold 1.0 \
+    --minimum-distance 1
+```
+
+### 4. Nucleus candidate discovery
+
+The Nucleus stage consumes both the ScaleProfile artifacts and the
+Boundary candidate artifacts.
+
+```bash
+python analysis/nucleus/extract_nucleus_candidates.py \
+    --input scale_profile.npz \
+    --metadata-input scale_profile_metadata.json \
+    --boundary-input boundary_candidates.npz \
+    --boundary-metadata-input boundary_candidates_metadata.json \
+    --output nucleus_candidates.npz
+```
+
+The default output set is:
+
+```text
+nucleus_candidates.npz
+nucleus_candidates_metadata.json
+```
+
+An explicit metadata output path and candidate-discovery settings may be
+provided:
+
+```bash
+python analysis/nucleus/extract_nucleus_candidates.py \
+    --input scale_profile.npz \
+    --metadata-input scale_profile_metadata.json \
+    --boundary-input boundary_candidates.npz \
+    --boundary-metadata-input boundary_candidates_metadata.json \
+    --output nucleus_candidates.npz \
+    --metadata-output nucleus_metadata.json \
+    --local-contrast-radius 2 \
+    --threshold 1.0 \
+    --minimum-distance 1 \
+    --boundary-exclusion-distance 1
+```
+
+The six Nucleus evidence weights can also be overridden:
+
+```bash
+python analysis/nucleus/extract_nucleus_candidates.py \
+    --input scale_profile.npz \
+    --metadata-input scale_profile_metadata.json \
+    --boundary-input boundary_candidates.npz \
+    --boundary-metadata-input boundary_candidates_metadata.json \
+    --output nucleus_candidates.npz \
+    --frame-total-weight 1.0 \
+    --frame-mean-weight 1.0 \
+    --frame-max-weight 1.0 \
+    --dominant-frequency-weight 1.0 \
+    --frequency-centroid-weight 1.0 \
+    --frequency-dispersion-weight 1.0
+```
+
+A Boundary exclusion distance of `0` disables Boundary-adjacent
+candidate exclusion.
+
+On success, each CLI validates its input artifacts, performs the
+requested extraction, validates the new arrays and metadata, and writes
+compressed NPZ and strict JSON outputs. Invalid paths, incompatible
+metadata, malformed arrays, and invalid configuration values produce a
+nonzero exit status.
 
 ## Testing
 
-Run the CWT test module:
+Run an individual pipeline test module:
 
 ```bash
 python -m pytest tests/test_extract_cwt.py -q
+python -m pytest tests/test_extract_scale_profile.py -q
+python -m pytest tests/test_extract_boundary_candidates.py -q
+python -m pytest tests/test_extract_nucleus_candidates.py -q
 ```
 
 Run the complete test suite:
@@ -688,25 +957,46 @@ Run the complete test suite:
 python -m pytest -q
 ```
 
+Check staged or unstaged whitespace errors:
+
+```bash
+git diff --check
+git diff --cached --check
+```
+
 Current validated baseline:
 
 ```text
-tests/test_extract_cwt.py : 292 passed
-full test suite           : 306 passed
+tests/test_extract_nucleus_candidates.py : 382 passed
+full test suite                           : 1,116 passed
+Nucleus test skips                        : 0
+full-suite failures                       : 0
+git diff --check                          : no output
 ```
+
+One known warning remains in `pyworld` 0.3.5 because its package
+initialization imports the deprecated `pkg_resources` API.
 
 ## Research Direction
 
-With the validated CWT and persistence foundation in place, the next
-research stages can focus on:
+The validated implementation now covers:
 
-- loading and validating persisted CWT representations;
+- CWT representation and physical frequency coordinates;
 - ScaleProfile construction;
-- boundary-candidate discovery;
-- nucleus-candidate discovery;
-- variable-length node construction;
-- recursive containment;
+- multi-feature Boundary candidate discovery;
+- multi-feature Nucleus candidate discovery;
+- versioned metadata and compressed persistence;
+- command-line orchestration and acceptance testing.
+
+The next research and implementation stages can focus on:
+
+- variable-length prosodic node construction;
+- Boundary- and Nucleus-conditioned segment formation;
+- recursive containment and overlapping hierarchy;
+- parent-child and cross-scale relationships;
+- topological consistency validation;
 - cross-linguistic comparison;
+- language-specific interpretation layers;
 - integration with broader linguistic topology research.
 
 The central methodological constraint remains unchanged:
