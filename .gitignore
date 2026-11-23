@@ -168,3 +168,6 @@ mlruns/
 
 # Local documentation
 /docs/
+
+# Local JSUT forced-alignment labels
+/external/jsut-lab/
