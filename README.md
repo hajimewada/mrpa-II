@@ -940,6 +940,255 @@ compressed NPZ and strict JSON outputs. Invalid paths, incompatible
 metadata, malformed arrays, and invalid configuration values produce a
 nonzero exit status.
 
+## JSUT Batch Processing
+
+The complete MRPA-II pipeline can be applied to JSUT utterances with:
+
+```bash
+scripts/process_jsut.sh
+```
+
+The script connects the implemented processing stages:
+
+```text
+JSUT WAV
+    ↓
+observed F0
+    ↓
+interpolated continuous F0
+    ↓
+Continuous Wavelet Transform
+    ↓
+ScaleProfile
+    ↓
+Boundary candidates
+    ↓
+Nucleus candidates
+```
+
+### Expected JSUT layout
+
+By default, the script expects JSUT v1.1 under:
+
+```text
+~/projects/mrpa/data/jsut/raw/jsut_ver1.1
+```
+
+For example:
+
+```text
+~/projects/mrpa/data/jsut/raw/jsut_ver1.1/
+├── basic5000/
+│   └── wav/
+├── countersuffix26/
+├── loanword128/
+├── onomatopee300/
+├── precedent130/
+├── repeat500/
+├── travel1000/
+├── utparaphrase512/
+└── voiceactress100/
+```
+
+The default MRPA-II output root is:
+
+```text
+~/projects/mrpa/data/jsut/results/mrpa-II
+```
+
+### Process one utterance
+
+Use `LIMIT=1` for an initial end-to-end check:
+
+```bash
+SUBSET=basic5000 \
+LIMIT=1 \
+FORCE=1 \
+scripts/process_jsut.sh
+```
+
+A successful run reports:
+
+```text
+processed=1
+failed=0
+output_root=/home/hajimewada/projects/mrpa/data/jsut/results/mrpa-II
+```
+
+### Process ten utterances
+
+Use the following command for a ten-utterance batch test:
+
+```bash
+SUBSET=basic5000 \
+LIMIT=10 \
+FORCE=1 \
+scripts/process_jsut.sh
+```
+
+The validated ten-utterance run completed successfully:
+
+```text
+processed=10
+failed=0
+```
+
+All ten utterances produced:
+
+```text
+complete markers       : 10
+CWT archives           : 10
+ScaleProfile archives  : 10
+Boundary archives      : 10
+Nucleus archives       : 10
+complete pipeline logs : 10
+```
+
+### Resume an interrupted batch
+
+Each successfully completed utterance receives a `.complete` marker.
+
+Use `FORCE=0` to skip utterances that already have this marker:
+
+```bash
+SUBSET=basic5000 \
+LIMIT=100 \
+FORCE=0 \
+scripts/process_jsut.sh
+```
+
+Use `FORCE=1` to remove the previous completion state and reprocess the selected utterances:
+
+```bash
+SUBSET=basic5000 \
+LIMIT=10 \
+FORCE=1 \
+scripts/process_jsut.sh
+```
+
+`LIMIT=0` processes all WAV files in the selected subset.
+
+### Environment variables
+
+The batch script accepts the following environment variables:
+
+```text
+JSUT_DATA_ROOT
+JSUT_CORPUS_ROOT
+OUTPUT_ROOT
+SUBSET
+LIMIT
+FORCE
+PYTHON
+```
+
+Default values:
+
+```text
+JSUT_DATA_ROOT
+  ~/projects/mrpa/data/jsut
+
+JSUT_CORPUS_ROOT
+  $JSUT_DATA_ROOT/raw/jsut_ver1.1
+
+OUTPUT_ROOT
+  $JSUT_DATA_ROOT/results/mrpa-II
+
+SUBSET
+  basic5000
+
+LIMIT
+  0
+
+FORCE
+  0
+
+PYTHON
+  <repository-root>/.venv/bin/python
+```
+
+### Per-utterance output layout
+
+Each utterance receives an isolated output directory:
+
+```text
+results/mrpa-II/
+└── basic5000/
+    └── BASIC5000_0001/
+        ├── .complete
+        ├── f0/
+        │   ├── BASIC5000_0001_f0.npy
+        │   ├── BASIC5000_0001_f0_time.npy
+        │   ├── BASIC5000_0001_f0_metadata.json
+        │   ├── BASIC5000_0001_f0_interpolated.npy
+        │   ├── BASIC5000_0001_voicing.npy
+        │   ├── BASIC5000_0001_interpolation_mask.npy
+        │   └── BASIC5000_0001_interpolation_metadata.json
+        ├── cwt/
+        │   ├── BASIC5000_0001_cwt.npz
+        │   └── BASIC5000_0001_cwt_metadata.json
+        ├── scale_profile/
+        │   ├── BASIC5000_0001_scale_profile.npz
+        │   └── BASIC5000_0001_scale_profile_metadata.json
+        ├── boundary/
+        │   ├── BASIC5000_0001_boundary_candidates.npz
+        │   └── BASIC5000_0001_boundary_candidates_metadata.json
+        ├── nucleus/
+        │   ├── BASIC5000_0001_nucleus_candidates.npz
+        │   └── BASIC5000_0001_nucleus_candidates_metadata.json
+        └── logs/
+            └── pipeline.log
+```
+
+The `.complete` marker is created only after all expected artifacts have
+been generated successfully.
+
+### Inspect a pipeline log
+
+For a specific utterance:
+
+```bash
+cat \
+  ~/projects/mrpa/data/jsut/results/mrpa-II/basic5000/BASIC5000_0001/logs/pipeline.log
+```
+
+A successful log ends with:
+
+```text
+pipeline_status=complete
+```
+
+### Verify batch artifacts
+
+```bash
+RESULT_ROOT="$HOME/projects/mrpa/data/jsut/results/mrpa-II/basic5000"
+
+printf 'complete=%s\n' \
+  "$(find "$RESULT_ROOT" -name '.complete' -type f | wc -l)"
+
+printf 'cwt_npz=%s\n' \
+  "$(find "$RESULT_ROOT" -path '*/cwt/*_cwt.npz' -type f | wc -l)"
+
+printf 'scale_profile_npz=%s\n' \
+  "$(find "$RESULT_ROOT" -path '*/scale_profile/*_scale_profile.npz' -type f | wc -l)"
+
+printf 'boundary_npz=%s\n' \
+  "$(find "$RESULT_ROOT" -path '*/boundary/*_boundary_candidates.npz' -type f | wc -l)"
+
+printf 'nucleus_npz=%s\n' \
+  "$(find "$RESULT_ROOT" -path '*/nucleus/*_nucleus_candidates.npz' -type f | wc -l)"
+
+printf 'complete_logs=%s\n' \
+  "$(grep -l \
+      'pipeline_status=complete' \
+      "$RESULT_ROOT"/*/logs/pipeline.log \
+      | wc -l)"
+```
+
+For the validated ten-utterance batch, every count is `10`.
+
+
+
 ## Testing
 
 Run an individual pipeline test module:
